@@ -357,38 +357,75 @@ function TablePanel({ p }: { p: Extract<Panel, { kind: "table" }> }) {
 
 function NetworkPanel({ p }: { p: Extract<Panel, { kind: "network" }> }) {
   const rows = Array.isArray(p.rows) ? p.rows : [];
-  const [zoomByRow, setZoomByRow] = useState<Record<string, number>>({});
+  const [sizeByRow, setSizeByRow] = useState<Record<string, { node: number; font: number }>>({});
 
   return (
     <div className="space-y-6">
       {rows.map((row, idx) => {
         const rowKey = `${row.source}-${idx}`;
-        const zoom = zoomByRow[rowKey] ?? 1;
+        const sizes = sizeByRow[rowKey] ?? { node: 11, font: 13 };
         return (
           <div key={rowKey} className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <div className="text-xs font-semibold text-muted-foreground">{row.source}</div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                <span>Node</span>
                 <button
                   type="button"
-                  onClick={() => setZoomByRow((prev) => ({ ...prev, [rowKey]: Math.max(0.6, zoom - 0.2) }))}
+                  onClick={() =>
+                    setSizeByRow((prev) => ({
+                      ...prev,
+                      [rowKey]: { ...sizes, node: Math.max(6, sizes.node - 1) },
+                    }))
+                  }
                   className="h-7 w-7 rounded-lg border border-border/70 bg-card/60 text-sm text-foreground hover:bg-card/80 transition"
-                  aria-label="Zoom out"
+                  aria-label="Decrease node size"
                 >
                   -
                 </button>
-                <div className="text-[11px] text-muted-foreground">{Math.round(zoom * 100)}%</div>
                 <button
                   type="button"
-                  onClick={() => setZoomByRow((prev) => ({ ...prev, [rowKey]: Math.min(2, zoom + 0.2) }))}
+                  onClick={() =>
+                    setSizeByRow((prev) => ({
+                      ...prev,
+                      [rowKey]: { ...sizes, node: Math.min(20, sizes.node + 1) },
+                    }))
+                  }
                   className="h-7 w-7 rounded-lg border border-border/70 bg-card/60 text-sm text-foreground hover:bg-card/80 transition"
-                  aria-label="Zoom in"
+                  aria-label="Increase node size"
+                >
+                  +
+                </button>
+                <span>Font</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSizeByRow((prev) => ({
+                      ...prev,
+                      [rowKey]: { ...sizes, font: Math.max(9, sizes.font - 1) },
+                    }))
+                  }
+                  className="h-7 w-7 rounded-lg border border-border/70 bg-card/60 text-sm text-foreground hover:bg-card/80 transition"
+                  aria-label="Decrease font size"
+                >
+                  -
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSizeByRow((prev) => ({
+                      ...prev,
+                      [rowKey]: { ...sizes, font: Math.min(18, sizes.font + 1) },
+                    }))
+                  }
+                  className="h-7 w-7 rounded-lg border border-border/70 bg-card/60 text-sm text-foreground hover:bg-card/80 transition"
+                  aria-label="Increase font size"
                 >
                   +
                 </button>
               </div>
             </div>
-            <NetworkRowViz row={row} zoom={zoom} />
+            <NetworkRowViz row={row} nodeSize={sizes.node} fontSize={sizes.font} />
           </div>
         );
       })}
@@ -396,19 +433,18 @@ function NetworkPanel({ p }: { p: Extract<Panel, { kind: "network" }> }) {
   );
 }
 
-function NetworkRowViz({ row, zoom }: { row: NetworkRow; zoom: number }) {
+function NetworkRowViz({ row, nodeSize, fontSize }: { row: NetworkRow; nodeSize: number; fontSize: number }) {
   const nodes = row.nodes || [];
   const edges = row.edges || [];
   const annotations = row.annotations || [];
   const isOverlay = row.source.toLowerCase().includes("hubble");
-  const isUnderlay = row.source.toLowerCase().includes("ndi");
   const spacing = isOverlay ? 180 : 140;
   const viewWidth = Math.max(320, (nodes.length - 1) * spacing + 220);
   const viewHeight = 240;
   const y = viewHeight / 2;
-  const nodeRadius = isUnderlay ? 12 : 11;
-  const labelFont = isUnderlay ? 14 : 13;
-  const edgeFont = isUnderlay ? 12 : 11;
+  const nodeRadius = nodeSize;
+  const labelFont = fontSize;
+  const edgeFont = Math.max(10, fontSize - 2);
 
   const positions = new Map<string, { x: number; y: number }>();
   nodes.forEach((node, idx) => {
@@ -416,14 +452,9 @@ function NetworkRowViz({ row, zoom }: { row: NetworkRow; zoom: number }) {
     positions.set(node.id, { x, y });
   });
 
-  const scaledWidth = viewWidth / zoom;
-  const scaledHeight = viewHeight / zoom;
-  const offsetX = (viewWidth - scaledWidth) / 2;
-  const offsetY = (viewHeight - scaledHeight) / 2;
-
   return (
     <div className="rounded-xl border border-border/70 bg-card/60 p-3">
-      <svg viewBox={`${offsetX} ${offsetY} ${scaledWidth} ${scaledHeight}`} className="w-full h-64">
+      <svg viewBox={`0 0 ${viewWidth} ${viewHeight}`} className="w-full h-64">
         {edges.map((edge, idx) => {
           const from = positions.get(edge.from);
           const to = positions.get(edge.to);
