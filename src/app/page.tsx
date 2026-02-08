@@ -358,7 +358,7 @@ function TablePanel({ p }: { p: Extract<Panel, { kind: "table" }> }) {
 function NetworkPanel({ p }: { p: Extract<Panel, { kind: "network" }> }) {
   const rows = Array.isArray(p.rows) ? p.rows : [];
   const [sizeByRow, setSizeByRow] = useState<Record<string, { node: number; font: number }>>({});
-  const defaultSizes = { node: 11, font: 13 };
+  const defaultSizes = { node: 14, font: 16 };
 
   return (
     <div className="space-y-6">
@@ -447,8 +447,8 @@ function NetworkRowViz({ row, nodeSize, fontSize }: { row: NetworkRow; nodeSize:
   const edges = row.edges || [];
   const annotations = row.annotations || [];
   const isOverlay = row.source.toLowerCase().includes("hubble");
-  const spacing = isOverlay ? 180 : 140;
-  const viewWidth = Math.max(320, (nodes.length - 1) * spacing + 220);
+  const spacing = isOverlay ? 180 : 160;
+  const viewWidth = Math.max(420, (nodes.length - 1) * spacing + 240);
   const viewHeight = 240;
   const y = viewHeight / 2;
   const nodeRadius = nodeSize;
@@ -462,8 +462,8 @@ function NetworkRowViz({ row, nodeSize, fontSize }: { row: NetworkRow; nodeSize:
   });
 
   return (
-    <div className="rounded-xl border border-border/70 bg-card/60 p-3">
-      <svg viewBox={`0 0 ${viewWidth} ${viewHeight}`} className="w-full h-64">
+    <div className="rounded-xl border border-border/70 bg-card/60 p-3 overflow-x-auto">
+      <svg viewBox={`0 0 ${viewWidth} ${viewHeight}`} style={{ width: viewWidth }} className="h-64">
         {edges.map((edge, idx) => {
           const from = positions.get(edge.from);
           const to = positions.get(edge.to);
