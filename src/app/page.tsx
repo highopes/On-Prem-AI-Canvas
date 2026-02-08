@@ -358,12 +358,13 @@ function TablePanel({ p }: { p: Extract<Panel, { kind: "table" }> }) {
 function NetworkPanel({ p }: { p: Extract<Panel, { kind: "network" }> }) {
   const rows = Array.isArray(p.rows) ? p.rows : [];
   const [sizeByRow, setSizeByRow] = useState<Record<string, { node: number; font: number }>>({});
+  const defaultSizes = { node: 11, font: 13 };
 
   return (
     <div className="space-y-6">
       {rows.map((row, idx) => {
         const rowKey = `${row.source}-${idx}`;
-        const sizes = sizeByRow[rowKey] ?? { node: 11, font: 13 };
+        const sizes = sizeByRow[rowKey] ?? defaultSizes;
         return (
           <div key={rowKey} className="space-y-2">
             <div className="flex items-center justify-between gap-2">
