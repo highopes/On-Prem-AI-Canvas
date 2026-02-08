@@ -7,6 +7,7 @@ type ClientReq = {
   message: string;
   history?: Array<{ role: "user" | "assistant"; text: string }>;
   stream?: boolean;
+  workspace?: "security" | "observability";
 };
 
 type VizKind = "none" | "single" | "table" | "bar" | "pie" | "line";
@@ -32,6 +33,10 @@ type Filters = {
   tags_exact?: string[];
 };
 
+type ChartDatum = Record<string, string | number>;
+type TableRow = Record<string, string | number | null | undefined>;
+type McpRow = Record<string, unknown>;
+
 type Plan = {
   language: "en" | "zh";
   earliest_time: string;
@@ -40,26 +45,76 @@ type Plan = {
   outputs: OutputSpec[];
 };
 
+type ObservabilityViz = "line" | "network";
+type ObservabilityMcp = "grafana" | "hubble" | "ndi";
+type ObservabilityTool = "query_dashboard_timeseries" | "fetch_flow_metrics" | "fetch_anomalies";
+type ObservabilityTarget =
+  | "hubble-l7-http-metrics-by-workload"
+  | "nvidia-dcgm-exporter-dashboard"
+  | "vllm-dashboard"
+  | "ai-serving/foundation-instruct-vllm"
+  | "fdtn-ai/Foundation-Sec-8B-Instruct"
+  | "default-cluster";
+type ObservabilityMetric = "success_count_per_minute" | "success_rate" | "gpu_utilization" | "policy_drop_flows" | "anomaly_events";
+
+type ObservabilityRequest = {
+  mcp: ObservabilityMcp;
+  tool: ObservabilityTool;
+  target: ObservabilityTarget;
+  metric: ObservabilityMetric;
+  viz: ObservabilityViz;
+  title: string;
+};
+
+type ObservabilityPlan = {
+  language: "en" | "zh";
+  earliest_time: string;
+  latest_time: string;
+  requests: ObservabilityRequest[];
+};
+
+type NetworkNode = { id: string; label: string; status: "ok" | "alert" };
+type NetworkEdge = { from: string; to: string; label?: string };
+type NetworkAnnotation = { nodeId: string; label: string };
+type NetworkRow = {
+  source: string;
+  nodes: NetworkNode[];
+  edges: NetworkEdge[];
+  annotations?: NetworkAnnotation[];
+  stats?: { policy_drop?: number; anomalies?: number };
+};
+
 type Panel =
   | { panel_id: string; title: string; kind: "single"; spl: string; label: string; value: number }
-  | { panel_id: string; title: string; kind: "table"; spl: string; columns: string[]; rows: any[] }
+  | { panel_id: string; title: string; kind: "table"; spl: string; columns: string[]; rows: TableRow[] }
   | {
       panel_id: string;
       title: string;
-      kind: "bar" | "pie";
+      kind: "bar";
       spl: string;
       xKey: string;
       yKey: string;
-      data: any[];
+      data: ChartDatum[];
       drilldownType: "severity" | "tag" | "node" | "net";
     }
-  | { panel_id: string; title: string; kind: "line"; spl: string; xKey: string; seriesKeys: string[]; data: any[] };
+  | {
+      panel_id: string;
+      title: string;
+      kind: "pie";
+      spl: string;
+      xKey: string;
+      yKey: string;
+      data: ChartDatum[];
+      drilldownType: "severity" | "tag" | "node" | "net";
+    }
+  | { panel_id: string; title: string; kind: "line"; spl: string; xKey: string; seriesKeys: string[]; data: ChartDatum[] }
+  | { panel_id: string; title: string; kind: "network"; rows: NetworkRow[] };
 
 function detectLanguage(msg: string): "en" | "zh" {
   return /[\u4e00-\u9fff]/.test(msg) ? "zh" : "en";
 }
 
-function clampInt(n: any, lo: number, hi: number, dflt: number): number {
+function clampInt(n: unknown, lo: number, hi: number, dflt: number): number {
   const x = Number(n);
   if (!Number.isFinite(x)) return dflt;
   return Math.min(hi, Math.max(lo, Math.floor(x)));
@@ -140,7 +195,7 @@ function resolveQwenChatCompletionsUrl(): string {
   return joinUrl(base, "chat/completions");
 }
 
-function tryParseJson(s: string): any | null {
+function tryParseJson(s: string): unknown | null {
   try {
     return JSON.parse(s);
   } catch {
@@ -148,37 +203,71 @@ function tryParseJson(s: string): any | null {
   }
 }
 
-function extractResultsFromMcpResult(r: any): any[] {
+function isMcpRow(value: unknown): value is McpRow {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function extractResultsFromMcpResult(r: unknown): McpRow[] {
   if (!r) return [];
 
-  const sc = r.structuredContent;
-  if (sc) {
-    if (Array.isArray(sc.results)) return sc.results;
-    if (Array.isArray(sc.data)) return sc.data;
+  if (typeof r === "object" && r !== null) {
+    const sc = (r as { structuredContent?: unknown }).structuredContent;
+    if (sc && typeof sc === "object") {
+      const scObj = sc as { results?: unknown; data?: unknown };
+      if (Array.isArray(scObj.results)) return scObj.results.filter(isMcpRow);
+      if (Array.isArray(scObj.data)) return scObj.data.filter(isMcpRow);
+    }
   }
 
-  if (Array.isArray(r.results)) return r.results;
-
-  if (Array.isArray(r.rows) && Array.isArray(r.fields)) {
-    return r.rows.map((row: any[]) => {
-      const obj: any = {};
-      r.fields.forEach((f: string, i: number) => (obj[f] = row?.[i]));
-      return obj;
-    });
+  if (typeof r === "object" && r !== null) {
+    const results = (r as { results?: unknown }).results;
+    if (Array.isArray(results)) return results.filter(isMcpRow);
   }
 
-  if (Array.isArray(r.data)) return r.data;
+  if (typeof r === "object" && r !== null) {
+    const fields = (r as { fields?: unknown }).fields;
+    const rows = (r as { rows?: unknown }).rows;
+    if (Array.isArray(rows) && Array.isArray(fields)) {
+      return rows.map((row) => {
+        const obj: McpRow = {};
+        fields.forEach((f, i) => {
+          if (typeof f === "string") obj[f] = Array.isArray(row) ? row[i] : undefined;
+        });
+        return obj;
+      });
+    }
+  }
 
-  if (Array.isArray(r.content)) {
-    for (const c of r.content) {
-      if (c?.type === "json" && Array.isArray(c?.json?.results)) return c.json.results;
-      if (c?.type === "text" && typeof c?.text === "string") {
-        const obj = tryParseJson(c.text);
-        if (!obj) continue;
-        if (Array.isArray(obj.results)) return obj.results;
-        const sc2 = obj.structuredContent;
-        if (sc2 && Array.isArray(sc2.results)) return sc2.results;
-        if (Array.isArray(obj)) return obj;
+  if (typeof r === "object" && r !== null) {
+    const data = (r as { data?: unknown }).data;
+    if (Array.isArray(data)) return data.filter(isMcpRow);
+  }
+
+  if (typeof r === "object" && r !== null) {
+    const content = (r as { content?: unknown }).content;
+    if (Array.isArray(content)) {
+      for (const c of content) {
+        if (c && typeof c === "object") {
+          const cObj = c as { type?: unknown; json?: unknown; text?: unknown };
+          if (cObj.type === "json" && cObj.json && typeof cObj.json === "object") {
+            const jsonObj = cObj.json as { results?: unknown };
+            if (Array.isArray(jsonObj.results)) return jsonObj.results.filter(isMcpRow);
+          }
+          if (cObj.type === "text" && typeof cObj.text === "string") {
+            const obj = tryParseJson(cObj.text);
+            if (!obj) continue;
+            if (Array.isArray(obj)) return obj.filter(isMcpRow);
+            if (typeof obj === "object" && obj !== null) {
+              const objResults = (obj as { results?: unknown }).results;
+              if (Array.isArray(objResults)) return objResults.filter(isMcpRow);
+              const sc2 = (obj as { structuredContent?: unknown }).structuredContent;
+              if (sc2 && typeof sc2 === "object") {
+                const sc2Obj = sc2 as { results?: unknown };
+                if (Array.isArray(sc2Obj.results)) return sc2Obj.results.filter(isMcpRow);
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -201,7 +290,7 @@ async function callSplunkMcp(query: string, earliest_time: string, latest_time: 
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify(payload),
-    // @ts-ignore
+    // @ts-expect-error undici dispatcher is not yet in the standard fetch typings.
     dispatcher,
   });
 
@@ -212,15 +301,17 @@ async function callSplunkMcp(query: string, earliest_time: string, latest_time: 
     const bodyPreview = text ? text.slice(0, 800) : "";
     throw new Error(`Splunk MCP HTTP ${resp.status}: ${bodyPreview}`);
   }
-  if (!json?.result) return [];
-  return extractResultsFromMcpResult(json.result);
+  if (!json || typeof json !== "object") return [];
+  const result = (json as { result?: unknown }).result;
+  if (!result) return [];
+  return extractResultsFromMcpResult(result);
 }
 
 function escapeSplString(s: string): string {
   return String(s ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-function extractJsonObjectLoose(text: string): any | null {
+function extractJsonObjectLoose(text: string): unknown | null {
   const t = String(text ?? "");
   const first = t.indexOf("{");
   const last = t.lastIndexOf("}");
@@ -258,7 +349,7 @@ function containsNetworkActivityIntent(userMsg: string): boolean {
   return false;
 }
 
-function normalizeOutputs(rawOutputs: any): OutputSpec[] {
+function normalizeOutputs(rawOutputs: unknown): OutputSpec[] {
   const outputsIn = Array.isArray(rawOutputs) ? rawOutputs : [];
   const allowedKind = new Set(["none", "single", "table", "bar", "pie", "line"]);
   const allowedTemplate = new Set(["count", "table", "count_by", "trend"]);
@@ -267,28 +358,36 @@ function normalizeOutputs(rawOutputs: any): OutputSpec[] {
 
   const out: OutputSpec[] = [];
   for (const o of outputsIn) {
-    const kind = allowedKind.has(String(o?.kind)) ? (String(o.kind) as VizKind) : "none";
-    const template = allowedTemplate.has(String(o?.template)) ? (String(o.template) as Template) : "table";
-    const title = typeof o?.title === "string" && o.title.trim() ? o.title.trim() : "Result";
+    const kind = allowedKind.has(String((o as { kind?: unknown })?.kind)) ? (String((o as { kind?: unknown }).kind) as VizKind) : "none";
+    const template = allowedTemplate.has(String((o as { template?: unknown })?.template))
+      ? (String((o as { template?: unknown }).template) as Template)
+      : "table";
+    const rawTitle = (o as { title?: unknown })?.title;
+    const title = typeof rawTitle === "string" && rawTitle.trim() ? rawTitle.trim() : "Result";
 
     const spec: OutputSpec = { kind, template, title };
 
     if (template === "count_by") {
-      spec.group_by = allowedGroup.has(String(o?.group_by)) ? (String(o.group_by) as GroupBy) : "Severity";
-      spec.limit = clampInt(o?.limit, 3, 50, 10);
+      spec.group_by = allowedGroup.has(String((o as { group_by?: unknown })?.group_by))
+        ? (String((o as { group_by?: unknown }).group_by) as GroupBy)
+        : "Severity";
+      spec.limit = clampInt((o as { limit?: unknown })?.limit, 3, 50, 10);
       if (spec.kind !== "bar" && spec.kind !== "pie") spec.kind = "bar";
     }
 
     if (template === "trend") {
-      spec.span = typeof o?.span === "string" && o.span.trim() ? o.span.trim() : "5m";
-      spec.split = allowedSplit.has(String(o?.split)) ? (String(o.split) as any) : "none";
+      const rawSpan = (o as { span?: unknown })?.span;
+      spec.span = typeof rawSpan === "string" && rawSpan.trim() ? rawSpan.trim() : "5m";
+      spec.split = allowedSplit.has(String((o as { split?: unknown })?.split))
+        ? (String((o as { split?: unknown }).split) as "none" | "severity")
+        : "none";
       spec.kind = "line";
     }
 
     if (template === "count") spec.kind = "single";
     if (template === "table") {
       spec.kind = "table";
-      spec.limit = clampInt(o?.limit, 5, 200, 50);
+      spec.limit = clampInt((o as { limit?: unknown })?.limit, 5, 200, 50);
     }
 
     out.push(spec);
@@ -296,44 +395,51 @@ function normalizeOutputs(rawOutputs: any): OutputSpec[] {
   return out;
 }
 
-function normalizePlan(raw: any, userMsg: string): Plan {
+function normalizePlan(raw: unknown, userMsg: string): Plan {
   const lang = detectLanguage(userMsg);
 
+  const rawEarliest = (raw as { earliest_time?: unknown })?.earliest_time;
   const earliest_time =
-    typeof raw?.earliest_time === "string" && raw.earliest_time.trim()
-      ? raw.earliest_time.trim()
+    typeof rawEarliest === "string" && rawEarliest.trim()
+      ? rawEarliest.trim()
       : process.env.DEFAULT_EARLIEST_TIME || "-15m";
+  const rawLatest = (raw as { latest_time?: unknown })?.latest_time;
   const latest_time =
-    typeof raw?.latest_time === "string" && raw.latest_time.trim()
-      ? raw.latest_time.trim()
+    typeof rawLatest === "string" && rawLatest.trim()
+      ? rawLatest.trim()
       : process.env.DEFAULT_LATEST_TIME || "now";
 
   const f: Filters = {};
 
-  const rf = raw?.filters ?? {};
+  const rf = (raw as { filters?: unknown })?.filters ?? {};
 
-  const sevRaw = rf.severity_exact ?? rf.severity;
+  const sevRaw =
+    typeof rf === "object" && rf !== null ? ((rf as { severity_exact?: unknown; severity?: unknown }).severity_exact ?? (rf as { severity?: unknown }).severity) : undefined;
   if (Array.isArray(sevRaw)) {
     const cleaned = sevRaw
-      .map((x: any) => String(x || "").trim().toUpperCase())
+      .map((x) => String(x || "").trim().toUpperCase())
       .filter((x: string) => x === "CRITICAL" || x === "WARNING" || x === "INFO");
-    if (cleaned.length) f.severity_exact = cleaned as any;
+    if (cleaned.length) f.severity_exact = cleaned as Array<"CRITICAL" | "WARNING" | "INFO">;
   }
 
-  if (typeof rf.description_like === "string" && rf.description_like.trim()) f.description_like = rf.description_like.trim();
-  if (typeof rf.details_like === "string" && rf.details_like.trim()) f.details_like = rf.details_like.trim();
-  if (typeof rf.node_like === "string" && rf.node_like.trim()) f.node_like = rf.node_like.trim();
+  const rawDescription = (rf as { description_like?: unknown }).description_like;
+  if (typeof rawDescription === "string" && rawDescription.trim()) f.description_like = rawDescription.trim();
+  const rawDetails = (rf as { details_like?: unknown }).details_like;
+  if (typeof rawDetails === "string" && rawDetails.trim()) f.details_like = rawDetails.trim();
+  const rawNode = (rf as { node_like?: unknown }).node_like;
+  if (typeof rawNode === "string" && rawNode.trim()) f.node_like = rawNode.trim();
 
-  if (typeof rf.has_network_activity === "boolean") f.has_network_activity = rf.has_network_activity;
+  if (typeof (rf as { has_network_activity?: unknown }).has_network_activity === "boolean")
+    f.has_network_activity = (rf as { has_network_activity: boolean }).has_network_activity;
 
-  if (Array.isArray(rf.tags_exact)) {
-    const cleaned = rf.tags_exact
-      .map((x: any) => String(x || "").trim().toLowerCase())
+  if (Array.isArray((rf as { tags_exact?: unknown }).tags_exact)) {
+    const cleaned = ((rf as { tags_exact?: unknown[] }).tags_exact ?? [])
+      .map((x) => String(x || "").trim().toLowerCase())
       .filter((x: string) => /^[a-z0-9._-]+$/.test(x));
     if (cleaned.length) f.tags_exact = cleaned;
   }
 
-  const outputs = normalizeOutputs(raw?.outputs);
+  const outputs = normalizeOutputs((raw as { outputs?: unknown })?.outputs);
 
   return { language: lang, earliest_time, latest_time, filters: f, outputs };
 }
@@ -362,6 +468,175 @@ function ensureGuardrails(plan: Plan, userMsg: string) {
   }
 
   plan.outputs = plan.outputs.slice(0, 4);
+}
+
+const OBSERVABILITY_ALLOWED_TIMES = new Set(["-15m", "-30m", "-60m"]);
+const OBSERVABILITY_ALLOWED_MCPS = new Set<ObservabilityMcp>(["grafana", "hubble", "ndi"]);
+const OBSERVABILITY_ALLOWED_TOOLS = new Set<ObservabilityTool>([
+  "query_dashboard_timeseries",
+  "fetch_flow_metrics",
+  "fetch_anomalies",
+]);
+const OBSERVABILITY_ALLOWED_TARGETS = new Set<ObservabilityTarget>([
+  "hubble-l7-http-metrics-by-workload",
+  "nvidia-dcgm-exporter-dashboard",
+  "vllm-dashboard",
+  "ai-serving/foundation-instruct-vllm",
+  "fdtn-ai/Foundation-Sec-8B-Instruct",
+  "default-cluster",
+]);
+const OBSERVABILITY_ALLOWED_METRICS = new Set<ObservabilityMetric>([
+  "success_count_per_minute",
+  "success_rate",
+  "gpu_utilization",
+  "policy_drop_flows",
+  "anomaly_events",
+]);
+const OBSERVABILITY_ALLOWED_VIZ = new Set<ObservabilityViz>(["line", "network"]);
+
+function isAllowedObservabilityCombo(req: ObservabilityRequest): boolean {
+  if (req.mcp === "grafana") {
+    if (req.tool !== "query_dashboard_timeseries" || req.viz !== "line") return false;
+    if (req.target === "vllm-dashboard" && req.metric === "success_count_per_minute") return true;
+    if (req.target === "hubble-l7-http-metrics-by-workload" && req.metric === "success_rate") return true;
+    if (req.target === "nvidia-dcgm-exporter-dashboard" && req.metric === "gpu_utilization") return true;
+    return false;
+  }
+  if (req.mcp === "hubble") {
+    return req.tool === "fetch_flow_metrics" && req.viz === "network" && req.target === "ai-serving/foundation-instruct-vllm" && req.metric === "policy_drop_flows";
+  }
+  return (
+    req.mcp === "ndi" &&
+    req.tool === "fetch_anomalies" &&
+    req.viz === "network" &&
+    req.target === "default-cluster" &&
+    req.metric === "anomaly_events"
+  );
+}
+
+function normalizeObservabilityPlan(raw: unknown, userMsg: string): ObservabilityPlan {
+  const lang = detectLanguage(userMsg);
+  const earliest_time =
+    typeof (raw as { earliest_time?: unknown })?.earliest_time === "string" &&
+    OBSERVABILITY_ALLOWED_TIMES.has((raw as { earliest_time: string }).earliest_time)
+      ? (raw as { earliest_time: string }).earliest_time
+      : "-15m";
+  const latest_time = (raw as { latest_time?: unknown })?.latest_time === "now" ? "now" : "now";
+
+  const requestsIn = Array.isArray((raw as { requests?: unknown })?.requests) ? ((raw as { requests: unknown[] }).requests as unknown[]) : [];
+  const requests: ObservabilityRequest[] = [];
+
+  for (const r of requestsIn) {
+    const reqObj = (r ?? {}) as {
+      mcp?: unknown;
+      tool?: unknown;
+      target?: unknown;
+      metric?: unknown;
+      viz?: unknown;
+      title?: unknown;
+    };
+    const mcp = OBSERVABILITY_ALLOWED_MCPS.has(reqObj.mcp as ObservabilityMcp) ? (reqObj.mcp as ObservabilityMcp) : null;
+    const tool = OBSERVABILITY_ALLOWED_TOOLS.has(reqObj.tool as ObservabilityTool) ? (reqObj.tool as ObservabilityTool) : null;
+    const target = OBSERVABILITY_ALLOWED_TARGETS.has(reqObj.target as ObservabilityTarget) ? (reqObj.target as ObservabilityTarget) : null;
+    const metric = OBSERVABILITY_ALLOWED_METRICS.has(reqObj.metric as ObservabilityMetric) ? (reqObj.metric as ObservabilityMetric) : null;
+    const viz = OBSERVABILITY_ALLOWED_VIZ.has(reqObj.viz as ObservabilityViz) ? (reqObj.viz as ObservabilityViz) : null;
+    const title = typeof reqObj.title === "string" && reqObj.title.trim() ? reqObj.title.trim() : "Observability";
+
+    if (!mcp || !tool || !target || !metric || !viz) continue;
+    const req: ObservabilityRequest = { mcp, tool, target, metric, viz, title };
+    if (!isAllowedObservabilityCombo(req)) continue;
+    requests.push(req);
+  }
+
+  return { language: lang, earliest_time, latest_time, requests: requests.slice(0, 3) };
+}
+
+function fallbackObservabilityPlan(userMsg: string): ObservabilityPlan {
+  const lang = detectLanguage(userMsg);
+  const earliest_time = "-15m";
+  const latest_time = "now";
+  const s = userMsg.toLowerCase();
+  const isAnomaly = s.includes("\u901a\u4fe1\u5f02\u5e38") || s.includes("anomaly") || s.includes("abnormal") || s.includes("drop");
+
+  if (isAnomaly) {
+    return {
+      language: lang,
+      earliest_time,
+      latest_time,
+      requests: [
+        {
+          mcp: "hubble",
+          tool: "fetch_flow_metrics",
+          target: "ai-serving/foundation-instruct-vllm",
+          metric: "policy_drop_flows",
+          viz: "network",
+          title: lang === "zh" ? "\u901a\u4fe1\u5f02\u5e38\u62d3\u6251" : "Communication anomaly topology",
+        },
+        {
+          mcp: "ndi",
+          tool: "fetch_anomalies",
+          target: "default-cluster",
+          metric: "anomaly_events",
+          viz: "network",
+          title: lang === "zh" ? "\u4f4e\u5c42\u7f51\u7edc\u5f02\u5e38" : "Underlay anomalies",
+        },
+      ],
+    };
+  }
+
+  const isSuccessRate = s.includes("\u6210\u529f\u7387") || s.includes("success rate");
+  if (isSuccessRate) {
+    return {
+      language: lang,
+      earliest_time,
+      latest_time,
+      requests: [
+        {
+          mcp: "grafana",
+          tool: "query_dashboard_timeseries",
+          target: "hubble-l7-http-metrics-by-workload",
+          metric: "success_rate",
+          viz: "line",
+          title: lang === "zh" ? "\u6210\u529f\u7387\u8d8b\u52bf" : "Success rate trend",
+        },
+      ],
+    };
+  }
+
+  const isGpu = s.includes("gpu");
+  if (isGpu) {
+    return {
+      language: lang,
+      earliest_time,
+      latest_time,
+      requests: [
+        {
+          mcp: "grafana",
+          tool: "query_dashboard_timeseries",
+          target: "nvidia-dcgm-exporter-dashboard",
+          metric: "gpu_utilization",
+          viz: "line",
+          title: lang === "zh" ? "GPU\u5229\u7528\u7387\u8d8b\u52bf" : "GPU utilization trend",
+        },
+      ],
+    };
+  }
+
+  return {
+    language: lang,
+    earliest_time,
+    latest_time,
+    requests: [
+      {
+        mcp: "grafana",
+        tool: "query_dashboard_timeseries",
+        target: "vllm-dashboard",
+        metric: "success_count_per_minute",
+        viz: "line",
+        title: lang === "zh" ? "vLLM\u6210\u529f\u6b21\u6570\u8d8b\u52bf" : "vLLM success count trend",
+      },
+    ],
+  };
 }
 
 const BASE_SEARCH = [
@@ -518,6 +793,45 @@ function plannerSystemPrompt(): string {
   ].join("\n");
 }
 
+function observabilityPlannerSystemPrompt(): string {
+  return [
+    "You are a strict planner for the Observability analytics workspace.",
+    "Return ONLY one JSON object. No markdown. No extra text.",
+    "Choose values ONLY from the allowed options below. Do NOT invent new strings.",
+    "",
+    "Time range options:",
+    '- earliest_time: "-15m" | "-30m" | "-60m"',
+    '- latest_time: "now"',
+    "",
+    "Allowed request fields:",
+    '- mcp: "grafana" | "hubble" | "ndi"',
+    '- tool: "query_dashboard_timeseries" | "fetch_flow_metrics" | "fetch_anomalies"',
+    '- target: "hubble-l7-http-metrics-by-workload" | "nvidia-dcgm-exporter-dashboard" | "vllm-dashboard" | "ai-serving/foundation-instruct-vllm" | "fdtn-ai/Foundation-Sec-8B-Instruct" | "default-cluster"',
+    '- metric: "success_count_per_minute" | "success_rate" | "gpu_utilization" | "policy_drop_flows" | "anomaly_events"',
+    '- viz: "line" | "network"',
+    '- title: short label',
+    "",
+    "Valid combinations (MUST follow):",
+    '1) Grafana: tool="query_dashboard_timeseries", viz="line",',
+    '   - target="vllm-dashboard", metric="success_count_per_minute"',
+    '   - target="hubble-l7-http-metrics-by-workload", metric="success_rate"',
+    '   - target="nvidia-dcgm-exporter-dashboard", metric="gpu_utilization"',
+    '2) Hubble: tool="fetch_flow_metrics", viz="network",',
+    '   - target="ai-serving/foundation-instruct-vllm", metric="policy_drop_flows"',
+    '3) NDI: tool="fetch_anomalies", viz="network",',
+    '   - target="default-cluster", metric="anomaly_events"',
+    "",
+    "Guidance:",
+    "- If user asks communication anomalies, return TWO requests: Hubble + NDI.",
+    "- If user asks vLLM success count, return Grafana vllm-dashboard.",
+    "- If user asks microservice success rate, return Grafana hubble-l7-http-metrics-by-workload.",
+    "- If user asks GPU status, return Grafana nvidia-dcgm-exporter-dashboard.",
+    "",
+    "JSON schema (use double quotes):",
+    '{ "earliest_time":"-15m", "latest_time":"now", "requests":[ { "mcp":"grafana", "tool":"query_dashboard_timeseries", "target":"vllm-dashboard", "metric":"success_count_per_minute", "viz":"line", "title":"..." } ] }',
+  ].join("\n");
+}
+
 function explainerSystemPrompt(lang: "en" | "zh"): string {
   const langLine = lang === "zh" ? "You MUST reply in Simplified Chinese." : "You MUST reply in English.";
   return [
@@ -560,7 +874,7 @@ async function callQwenNonStream(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const body: any = {
+    const body = {
       model,
       messages: msgs,
       max_tokens,
@@ -569,14 +883,14 @@ async function callQwenNonStream(
       stream: false,
       enable_thinking: !disableThinking ? true : false,
       chat_template_kwargs: { enable_thinking: !disableThinking ? true : false },
-    };
+    } satisfies Record<string, unknown>;
 
     const resp = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal: controller.signal,
-      // @ts-ignore
+      // @ts-expect-error undici dispatcher is not yet in the standard fetch typings.
       dispatcher,
     });
 
@@ -588,7 +902,17 @@ async function callQwenNonStream(
       throw new Error(`Qwen HTTP ${resp.status}: ${preview}`);
     }
 
-    const content = String(json?.choices?.[0]?.message?.content ?? "");
+    let content = "";
+    if (json && typeof json === "object") {
+      const choices = (json as { choices?: unknown }).choices;
+      if (Array.isArray(choices) && choices[0] && typeof choices[0] === "object") {
+        const message = (choices[0] as { message?: unknown }).message;
+        if (message && typeof message === "object") {
+          const raw = (message as { content?: unknown }).content;
+          if (typeof raw === "string") content = raw;
+        }
+      }
+    }
     return content;
   } finally {
     clearTimeout(timer);
@@ -611,7 +935,7 @@ async function* callQwenStream(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const body: any = {
+    const body = {
       model,
       messages: msgs,
       max_tokens,
@@ -620,14 +944,14 @@ async function* callQwenStream(
       stream: true,
       enable_thinking: !disableThinking ? true : false,
       chat_template_kwargs: { enable_thinking: !disableThinking ? true : false },
-    };
+    } satisfies Record<string, unknown>;
 
     const resp = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal: controller.signal,
-      // @ts-ignore
+      // @ts-expect-error undici dispatcher is not yet in the standard fetch typings.
       dispatcher,
     });
 
@@ -661,9 +985,17 @@ async function* callQwenStream(
           if (!payload || payload === "[DONE]") continue;
 
           const obj = tryParseJson(payload);
-          const delta = obj?.choices?.[0]?.delta;
-
-          const content = delta?.content ?? "";
+          let content = "";
+          if (obj && typeof obj === "object") {
+            const choices = (obj as { choices?: unknown }).choices;
+            if (Array.isArray(choices) && choices[0] && typeof choices[0] === "object") {
+              const delta = (choices[0] as { delta?: unknown }).delta;
+              if (delta && typeof delta === "object") {
+                const raw = (delta as { content?: unknown }).content;
+                if (typeof raw === "string") content = raw;
+              }
+            }
+          }
           if (!content) continue;
 
           yield String(content);
@@ -676,19 +1008,32 @@ async function* callQwenStream(
 }
 
 function buildEvidenceFromPanels(panels: Panel[]) {
-  const ev: any[] = [];
+  const ev: Array<Record<string, unknown>> = [];
   for (const p of panels) {
     if (p.kind === "single") ev.push({ kind: "single", title: p.title, value: p.value });
     else if (p.kind === "bar" || p.kind === "pie") ev.push({ kind: p.kind, title: p.title, xKey: p.xKey, yKey: p.yKey, top: (p.data || []).slice(0, 10) });
     else if (p.kind === "line") ev.push({ kind: "line", title: p.title, xKey: p.xKey, seriesKeys: p.seriesKeys, tail: (p.data || []).slice(-12) });
     else if (p.kind === "table") ev.push({ kind: "table", title: p.title, columns: p.columns, sample: (p.rows || []).slice(0, 6), totalRows: (p.rows || []).length });
+    else if (p.kind === "network") {
+      ev.push({
+        kind: "network",
+        title: p.title,
+        rows: (p.rows || []).map((row) => ({
+          source: row.source,
+          nodes: row.nodes.map((n) => ({ label: n.label, status: n.status })),
+          edges: row.edges.map((e) => ({ from: e.from, to: e.to, label: e.label })),
+          stats: row.stats || {},
+          annotations: row.annotations || [],
+        })),
+      });
+    }
   }
   return ev;
 }
 
 function fallbackMarkdown(lang: "en" | "zh", panels: Panel[]) {
-  const single = panels.find((p) => p.kind === "single") as any;
-  const cnt = single?.value ?? null;
+  const single = panels.find((p) => p.kind === "single");
+  const cnt = single && "value" in single ? single.value : null;
 
   if (lang === "zh") {
     const head = cnt != null ? `**\u8fd4\u56de\u6570\u91cf\uff1a${cnt}\u6761**` : `**\u5df2\u8fd4\u56de\u56fe\u8868\u4e0e\u8868\u683c**`;
@@ -697,6 +1042,36 @@ function fallbackMarkdown(lang: "en" | "zh", panels: Panel[]) {
 
   const headEn = cnt != null ? `**Returned: ${cnt} events**` : `**Charts and tables returned**`;
   return `${headEn}\n\nThe explanation stage failed, but Splunk panels are already returned.`;
+}
+
+function normalizeChartData(rows: McpRow[]): ChartDatum[] {
+  return rows.map((row) => {
+    const out: ChartDatum = {};
+    for (const [key, value] of Object.entries(row)) {
+      if (typeof value === "string" || typeof value === "number") {
+        out[key] = value;
+      } else if (value != null) {
+        out[key] = String(value);
+      }
+    }
+    return out;
+  });
+}
+
+function normalizeTableValue(value: unknown): string | number | null | undefined {
+  if (value == null) return value as null | undefined;
+  if (typeof value === "string" || typeof value === "number") return value;
+  return String(value);
+}
+
+function normalizeTableRows(rows: McpRow[], columns: string[]): TableRow[] {
+  return rows.map((row) => {
+    const out: TableRow = {};
+    for (const col of columns) {
+      out[col] = normalizeTableValue(row[col]);
+    }
+    return out;
+  });
 }
 
 async function runPanels(plan: Plan, pushPanel: (p: Panel) => void) {
@@ -708,7 +1083,7 @@ async function runPanels(plan: Plan, pushPanel: (p: Panel) => void) {
     if (out.template === "count") {
       const spl = splCount(plan.filters);
       const rows = await callSplunkMcp(spl, plan.earliest_time, plan.latest_time, 5);
-      const v = Number(rows?.[0]?.value ?? 0);
+      const v = Number((rows?.[0] as McpRow | undefined)?.value ?? 0);
       const p: Panel = { panel_id: newPanelId("p_single", seq++), title: out.title, kind: "single", spl, label: "count", value: v };
       pushPanel(p);
       continue;
@@ -719,7 +1094,14 @@ async function runPanels(plan: Plan, pushPanel: (p: Panel) => void) {
       const spl = splTable(plan.filters, limit);
       const rows = await callSplunkMcp(spl, plan.earliest_time, plan.latest_time, limit);
       const columns = ["Time", "Severity", "Description", "Tags", "Details", "Recent Network Activity", "Node: Pod/Container"];
-      const p: Panel = { panel_id: newPanelId("p_table", seq++), title: out.title, kind: "table", spl, columns, rows };
+      const p: Panel = {
+        panel_id: newPanelId("p_table", seq++),
+        title: out.title,
+        kind: "table",
+        spl,
+        columns,
+        rows: normalizeTableRows(rows, columns),
+      };
       pushPanel(p);
       continue;
     }
@@ -728,10 +1110,10 @@ async function runPanels(plan: Plan, pushPanel: (p: Panel) => void) {
       const groupBy = out.group_by || "Severity";
       const limit = clampInt(out.limit, 3, 50, 10);
       const spl = splCountBy(plan.filters, groupBy, limit);
-      const data = await callSplunkMcp(spl, plan.earliest_time, plan.latest_time, limit);
+      const data = normalizeChartData(await callSplunkMcp(spl, plan.earliest_time, plan.latest_time, limit));
 
       let xKey = "Severity";
-      let drilldownType: any = "severity";
+      let drilldownType: "severity" | "tag" | "node" | "net" = "severity";
       if (groupBy === "node_pod_container") {
         xKey = "node_pod_container";
         drilldownType = "node";
@@ -743,7 +1125,7 @@ async function runPanels(plan: Plan, pushPanel: (p: Panel) => void) {
         drilldownType = "tag";
       }
 
-      const kind: any = out.kind === "pie" ? "pie" : "bar";
+      const kind: "bar" | "pie" = out.kind === "pie" ? "pie" : "bar";
       const p: Panel = { panel_id: newPanelId("p_dist", seq++), title: out.title, kind, spl, xKey, yKey: "count", data, drilldownType };
       pushPanel(p);
       continue;
@@ -753,7 +1135,7 @@ async function runPanels(plan: Plan, pushPanel: (p: Panel) => void) {
       const span = typeof out.span === "string" ? out.span : "5m";
       const split = out.split === "severity" ? "severity" : "none";
       const spl = splTrend(plan.filters, span, split);
-      const data = await callSplunkMcp(spl, plan.earliest_time, plan.latest_time, 500);
+      const data = normalizeChartData(await callSplunkMcp(spl, plan.earliest_time, plan.latest_time, 500));
       const seriesKeys = split === "severity" ? ["total", "critical", "warning", "info"] : ["total"];
       const p: Panel = { panel_id: newPanelId("p_trend", seq++), title: out.title, kind: "line", spl, xKey: "time", seriesKeys, data };
       pushPanel(p);
@@ -762,9 +1144,108 @@ async function runPanels(plan: Plan, pushPanel: (p: Panel) => void) {
   }
 }
 
-function sseEvent(event: string, dataObj: any) {
+function formatTimeLabel(date: Date): string {
+  return date.toTimeString().slice(0, 5);
+}
+
+function buildMinuteSeries(values: number[]) {
+  const now = Date.now();
+  const start = now - (values.length - 1) * 60 * 1000;
+  return values.map((value, idx) => {
+    const d = new Date(start + idx * 60 * 1000);
+    return { time: formatTimeLabel(d), value };
+  });
+}
+
+function mockGrafanaSeries(metric: ObservabilityMetric) {
+  if (metric === "success_rate") {
+    return buildMinuteSeries([100, 100, 98, 95, 92, 85, 75, 60, 45, 30, 20, 10, 5, 2, 0]);
+  }
+  if (metric === "gpu_utilization") {
+    return buildMinuteSeries([42, 45, 48, 50, 55, 58, 60, 62, 64, 66, 68, 70, 72, 74, 76]);
+  }
+  return buildMinuteSeries([5, 5, 5, 4, 4, 3, 3, 2, 2, 1, 1, 1, 0, 0, 0]);
+}
+
+function mockHubbleRow(): NetworkRow {
+  return {
+    source: "Hubble MCP (Overlay)",
+    nodes: [
+      { id: "world", label: "World", status: "ok" },
+      { id: "ai-serving/foundation-instruct-vllm", label: "ai-serving/foundation-instruct-vllm", status: "alert" },
+    ],
+    edges: [{ from: "world", to: "ai-serving/foundation-instruct-vllm", label: "Policy Drop: 20" }],
+    annotations: [{ nodeId: "ai-serving/foundation-instruct-vllm", label: "Policy Drop: 20" }],
+    stats: { policy_drop: 20 },
+  };
+}
+
+function mockNdiRow(): NetworkRow {
+  const nodes: NetworkNode[] = [
+    { id: "world", label: "World", status: "ok" },
+    { id: "router-03", label: "Router-03", status: "ok" },
+    { id: "leaf-02", label: "Leaf-02", status: "ok" },
+    { id: "spine-01", label: "Spine-01", status: "ok" },
+    { id: "leaf-01", label: "Leaf-01", status: "ok" },
+    { id: "loadbalancer-01", label: "Loadbalancer-01", status: "ok" },
+    { id: "leaf01", label: "Leaf01", status: "ok" },
+    { id: "spine-02", label: "Spine-02", status: "ok" },
+    { id: "leaf-03", label: "Leaf-03", status: "ok" },
+    { id: "csco-k8s-03", label: "csco-k8s-03", status: "ok" },
+  ];
+  const edges: NetworkEdge[] = [];
+  for (let i = 0; i < nodes.length - 1; i += 1) {
+    edges.push({ from: nodes[i].id, to: nodes[i + 1].id });
+  }
+  return {
+    source: "NDI MCP (Underlay)",
+    nodes,
+    edges,
+    stats: { anomalies: 0 },
+  };
+}
+
+async function runObservabilityPanels(plan: ObservabilityPlan, pushPanel: (p: Panel) => void) {
+  let seq = 0;
+  const networkRows: NetworkRow[] = [];
+
+  for (const req of plan.requests) {
+    if (req.viz === "line") {
+      const data = mockGrafanaSeries(req.metric);
+      const spl = `MCP: Grafana (mock)\nDashboard: ${req.target}\nMetric: ${req.metric}\nRange: ${plan.earliest_time} -> ${plan.latest_time}`;
+      const p: Panel = {
+        panel_id: newPanelId("p_trend", seq++),
+        title: req.title,
+        kind: "line",
+        spl,
+        xKey: "time",
+        seriesKeys: ["value"],
+        data,
+      };
+      pushPanel(p);
+      continue;
+    }
+
+    if (req.viz === "network") {
+      if (req.mcp === "hubble") networkRows.push(mockHubbleRow());
+      if (req.mcp === "ndi") networkRows.push(mockNdiRow());
+    }
+  }
+
+  if (networkRows.length > 0) {
+    const title =
+      plan.language === "zh" ? "\u901a\u4fe1\u5f02\u5e38\uff08Overlay/Underlay\uff09" : "Communication anomalies (Overlay/Underlay)";
+    pushPanel({ panel_id: newPanelId("p_net", seq++), title, kind: "network", rows: networkRows });
+  }
+}
+
+function sseEvent(event: string, dataObj: unknown) {
   const data = JSON.stringify(dataObj);
   return `event: ${event}\ndata: ${data}\n\n`;
+}
+
+function getErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 function defaultPlan(userMsg: string): Plan {
@@ -789,6 +1270,7 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as ClientReq;
   const userMsg = String(body?.message ?? "").trim();
   const stream = body?.stream !== false;
+  const workspace = body?.workspace === "observability" ? "observability" : "security";
 
   if (!userMsg) return new Response(JSON.stringify({ error: "Empty message" }), { status: 400 });
   if (!stream) return new Response(JSON.stringify({ error: "This endpoint expects stream=true" }), { status: 400 });
@@ -797,7 +1279,7 @@ export async function POST(req: Request) {
 
   const rs = new ReadableStream({
     async start(controller) {
-      const write = (event: string, data: any) => controller.enqueue(encoder.encode(sseEvent(event, data)));
+      const write = (event: string, data: unknown) => controller.enqueue(encoder.encode(sseEvent(event, data)));
       let stage: string = "planning";
 
       try {
@@ -805,6 +1287,79 @@ export async function POST(req: Request) {
 
         const plannerTimeout = clampInt(process.env.PLANNER_TIMEOUT_MS, 2000, 300000, 45000);
         const plannerTokens = clampInt(process.env.PLANNER_MAX_TOKENS, 64, 1500, 256);
+
+        if (workspace === "observability") {
+          let plan: ObservabilityPlan | null = null;
+
+          try {
+            const plannerRaw = await callQwenNonStream(
+              [
+                { role: "system", content: observabilityPlannerSystemPrompt() },
+                { role: "user", content: userMsg },
+              ],
+              plannerTokens,
+              plannerTimeout,
+            );
+
+            const planObj = extractJsonObjectLoose(plannerRaw);
+            if (planObj) {
+              plan = normalizeObservabilityPlan(planObj, userMsg);
+            }
+          } catch (e: unknown) {
+            const msg = getErrorMessage(e);
+            write("status", { stage: "planning_warning", message: msg });
+          }
+
+          if (!plan || plan.requests.length === 0) {
+            plan = fallbackObservabilityPlan(userMsg);
+          }
+
+          write("plan", plan);
+
+          stage = "querying_mcp";
+          write("status", { stage });
+
+          const panels: Panel[] = [];
+          await runObservabilityPanels(plan, (p) => {
+            panels.push(p);
+            write("panel", p);
+          });
+
+          stage = "explaining";
+          write("status", { stage });
+
+          const evidence = buildEvidenceFromPanels(panels);
+          const explainerInput = {
+            user: userMsg,
+            time: { earliest: plan.earliest_time, latest: plan.latest_time },
+            requests: plan.requests,
+            evidence,
+          };
+
+          const explainerTimeout = clampInt(process.env.EXPLAINER_TIMEOUT_MS, 5000, 300000, 60000);
+          const explainerTokens = clampInt(process.env.EXPLAINER_MAX_TOKENS, 128, 3000, 700);
+
+          const sys = explainerSystemPrompt(plan.language);
+          const msgs = [
+            { role: "system" as const, content: sys },
+            { role: "user" as const, content: JSON.stringify(explainerInput) },
+          ];
+
+          try {
+            for await (const delta of callQwenStream(msgs, explainerTokens, explainerTimeout)) {
+              if (delta) write("delta", { text: delta });
+            }
+            write("done", { llm_ok: true });
+          } catch (e: unknown) {
+            const msg = getErrorMessage(e);
+            const fb = fallbackMarkdown(plan.language, panels);
+            write("delta", { text: fb });
+            write("done", { llm_ok: false, llm_error: msg });
+          }
+
+          controller.close();
+          return;
+        }
 
         let plan: Plan | null = null;
 
@@ -823,8 +1378,8 @@ export async function POST(req: Request) {
             plan = normalizePlan(planObj, userMsg);
             ensureGuardrails(plan, userMsg);
           }
-        } catch (e: any) {
-          const msg = String(e?.message || e);
+        } catch (e: unknown) {
+          const msg = getErrorMessage(e);
           write("status", { stage: "planning_warning", message: msg });
         }
 
@@ -870,16 +1425,16 @@ export async function POST(req: Request) {
             if (delta) write("delta", { text: delta });
           }
           write("done", { llm_ok: true });
-        } catch (e: any) {
-          const msg = String(e?.message || e);
+        } catch (e: unknown) {
+          const msg = getErrorMessage(e);
           const fb = fallbackMarkdown(plan.language, panels);
           write("delta", { text: fb });
           write("done", { llm_ok: false, llm_error: msg });
         }
 
         controller.close();
-      } catch (e: any) {
-        const msg = String(e?.name === "AbortError" ? "Request aborted by timeout" : e?.message || e);
+      } catch (e: unknown) {
+        const msg = e instanceof Error && e.name === "AbortError" ? "Request aborted by timeout" : getErrorMessage(e);
         write("error", { stage, message: msg });
         controller.close();
       }
@@ -895,4 +1450,3 @@ export async function POST(req: Request) {
     },
   });
 }
-

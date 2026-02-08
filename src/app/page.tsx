@@ -22,20 +22,45 @@ import { Moon, Sun, Settings, Trash2, Clipboard, X } from "lucide-react";
 
 type ChatMsg = { id: string; role: "user" | "assistant"; text: string };
 
+type ChartDatum = Record<string, string | number>;
+type TableRow = Record<string, string | number | null | undefined>;
+
 type Panel =
   | { panel_id: string; title: string; kind: "single"; spl: string; label: string; value: number }
-  | { panel_id: string; title: string; kind: "table"; spl: string; columns: string[]; rows: any[] }
+  | { panel_id: string; title: string; kind: "table"; spl: string; columns: string[]; rows: TableRow[] }
   | {
       panel_id: string;
       title: string;
-      kind: "bar" | "pie";
+      kind: "bar";
       spl: string;
       xKey: string;
       yKey: string;
-      data: any[];
+      data: ChartDatum[];
       drilldownType: "severity" | "tag" | "node" | "net";
     }
-  | { panel_id: string; title: string; kind: "line"; spl: string; xKey: string; seriesKeys: string[]; data: any[] };
+  | {
+      panel_id: string;
+      title: string;
+      kind: "pie";
+      spl: string;
+      xKey: string;
+      yKey: string;
+      data: ChartDatum[];
+      drilldownType: "severity" | "tag" | "node" | "net";
+    }
+  | { panel_id: string; title: string; kind: "line"; spl: string; xKey: string; seriesKeys: string[]; data: ChartDatum[] }
+  | { panel_id: string; title: string; kind: "network"; rows: NetworkRow[] };
+
+type NetworkNode = { id: string; label: string; status: "ok" | "alert" };
+type NetworkEdge = { from: string; to: string; label?: string };
+type NetworkAnnotation = { nodeId: string; label: string };
+type NetworkRow = {
+  source: string;
+  nodes: NetworkNode[];
+  edges: NetworkEdge[];
+  annotations?: NetworkAnnotation[];
+  stats?: { policy_drop?: number; anomalies?: number };
+};
 
 function uid(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -64,12 +89,14 @@ function stageLabel(stage: string, lang: "zh" | "en") {
   const zh: Record<string, string> = {
     planning: "\u6b63\u5728\u89c4\u5212\u8f93\u51fa...",
     querying_splunk: "\u6b63\u5728\u67e5\u8be2 Splunk...",
+    querying_mcp: "\u6b63\u5728\u67e5\u8be2 MCP...",
     explaining: "\u6b63\u5728\u751f\u6210\u89e3\u91ca...",
     planning_warning: "\u89c4\u5212\u8b66\u544a\uff0c\u5df2\u4f7f\u7528\u9ed8\u8ba4\u8ba1\u5212...",
   };
   const en: Record<string, string> = {
     planning: "Planning...",
     querying_splunk: "Querying Splunk...",
+    querying_mcp: "Querying MCPs...",
     explaining: "Explaining...",
     planning_warning: "Planning warning, using fallback plan...",
   };
@@ -117,15 +144,13 @@ function MarkdownBlock({ text, tone }: { text: string; tone: "light" | "dark" })
   );
 }
 
-function SplDetails({ spl }: { spl: string }) {
-  const s = String(spl || "").trim();
+function QueryDetails({ query, label = "Query / MCP" }: { query: string; label?: string }) {
+  const s = String(query || "").trim();
   if (!s) return null;
 
   return (
     <details className="mt-3 rounded-xl border border-border/70 bg-card/60 backdrop-blur">
-      <summary className="cursor-pointer select-none px-3 py-2 text-xs font-semibold text-muted-foreground">
-        SPL
-      </summary>
+      <summary className="cursor-pointer select-none px-3 py-2 text-xs font-semibold text-muted-foreground">{label}</summary>
       <pre className="px-3 pb-3 pt-0 text-[11px] leading-5 text-foreground/90 whitespace-pre-wrap break-words">
         {s}
       </pre>
@@ -191,7 +216,7 @@ function SinglePanel({ p }: { p: Extract<Panel, { kind: "single" }> }) {
           <div className="text-xs text-muted-foreground mt-1">{p.label}</div>
         </div>
       </div>
-      <SplDetails spl={p.spl} />
+      <QueryDetails query={p.spl} />
     </div>
   );
 }
@@ -222,14 +247,14 @@ function BarPanel({ p }: { p: Extract<Panel, { kind: "bar" }> }) {
             />
             <Tooltip contentStyle={rechartsTooltipStyle()} cursor={{ fill: "rgba(255,255,255,0.04)" }} />
             <Bar dataKey={p.yKey} radius={[10, 10, 10, 10]} barSize={16}>
-              {data.map((_: any, idx: number) => (
+              {data.map((_, idx) => (
                 <Cell key={idx} fill={CHART_PALETTE[idx % CHART_PALETTE.length]} />
               ))}
             </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>
-      <SplDetails spl={p.spl} />
+      <QueryDetails query={p.spl} />
     </div>
   );
 }
@@ -244,14 +269,14 @@ function PiePanel({ p }: { p: Extract<Panel, { kind: "pie" }> }) {
             <Tooltip contentStyle={rechartsTooltipStyle()} />
             <Legend wrapperStyle={{ color: "hsl(var(--muted-foreground))" }} />
             <Pie data={data} dataKey={p.yKey} nameKey={p.xKey} outerRadius={110} stroke="hsl(var(--border))">
-              {data.map((_: any, idx: number) => (
+              {data.map((_, idx) => (
                 <Cell key={idx} fill={CHART_PALETTE[idx % CHART_PALETTE.length]} />
               ))}
             </Pie>
           </PieChart>
         </ResponsiveContainer>
       </div>
-      <SplDetails spl={p.spl} />
+      <QueryDetails query={p.spl} />
     </div>
   );
 }
@@ -282,7 +307,7 @@ function LinePanel({ p }: { p: Extract<Panel, { kind: "line" }> }) {
           </LineChart>
         </ResponsiveContainer>
       </div>
-      <SplDetails spl={p.spl} />
+      <QueryDetails query={p.spl} />
     </div>
   );
 }
@@ -305,7 +330,7 @@ function TablePanel({ p }: { p: Extract<Panel, { kind: "table" }> }) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r: any, idx: number) => (
+            {rows.map((r, idx) => (
               <tr
                 key={idx}
                 className={cn(
@@ -325,7 +350,102 @@ function TablePanel({ p }: { p: Extract<Panel, { kind: "table" }> }) {
           </tbody>
         </table>
       </div>
-      <SplDetails spl={p.spl} />
+      <QueryDetails query={p.spl} />
+    </div>
+  );
+}
+
+function NetworkPanel({ p }: { p: Extract<Panel, { kind: "network" }> }) {
+  const rows = Array.isArray(p.rows) ? p.rows : [];
+
+  return (
+    <div className="space-y-6">
+      {rows.map((row, idx) => (
+        <div key={`${row.source}-${idx}`} className="space-y-2">
+          <div className="text-xs font-semibold text-muted-foreground">{row.source}</div>
+          <NetworkRowViz row={row} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function NetworkRowViz({ row }: { row: NetworkRow }) {
+  const nodes = row.nodes || [];
+  const edges = row.edges || [];
+  const annotations = row.annotations || [];
+  const y = 45;
+  const viewWidth = 100;
+  const viewHeight = 90;
+
+  const positions = new Map<string, { x: number; y: number }>();
+  nodes.forEach((node, idx) => {
+    const x = nodes.length === 1 ? 50 : (idx / (nodes.length - 1)) * viewWidth;
+    positions.set(node.id, { x, y });
+  });
+
+  return (
+    <div className="rounded-xl border border-border/70 bg-card/60 p-3">
+      <svg viewBox={`0 0 ${viewWidth} ${viewHeight}`} className="w-full h-24">
+        {edges.map((edge, idx) => {
+          const from = positions.get(edge.from);
+          const to = positions.get(edge.to);
+          if (!from || !to) return null;
+          const midX = (from.x + to.x) / 2;
+          const midY = (from.y + to.y) / 2;
+          return (
+            <g key={`${edge.from}-${edge.to}-${idx}`}>
+              <line
+                x1={from.x}
+                y1={from.y}
+                x2={to.x}
+                y2={to.y}
+                stroke="hsl(var(--border))"
+                strokeWidth={1.2}
+              />
+              {edge.label ? (
+                <text x={midX} y={midY - 6} textAnchor="middle" fontSize={4.5} fill="hsl(var(--muted-foreground))">
+                  {edge.label}
+                </text>
+              ) : null}
+            </g>
+          );
+        })}
+        {nodes.map((node) => {
+          const pos = positions.get(node.id);
+          if (!pos) return null;
+          const fill = node.status === "alert" ? "#ef4444" : "#22c55e";
+          return (
+            <g key={node.id}>
+              <circle cx={pos.x} cy={pos.y} r={4.2} fill={fill} />
+              <text
+                x={pos.x}
+                y={pos.y + 12}
+                textAnchor="middle"
+                fontSize={4.2}
+                fill="hsl(var(--foreground))"
+              >
+                {node.label}
+              </text>
+            </g>
+          );
+        })}
+        {annotations.map((ann, idx) => {
+          const pos = positions.get(ann.nodeId);
+          if (!pos) return null;
+          return (
+            <text
+              key={`${ann.nodeId}-${idx}`}
+              x={pos.x + 6}
+              y={pos.y - 6}
+              fontSize={4.5}
+              fill="hsl(var(--muted-foreground))"
+            >
+              {ann.label}
+            </text>
+          );
+        })}
+      </svg>
     </div>
   );
 }
@@ -334,7 +454,7 @@ function parseSseBlocks(buf: string) {
   const parts = buf.split("\n\n");
   const complete = parts.slice(0, -1);
   const rest = parts[parts.length - 1] || "";
-  const events: Array<{ event: string; data: any }> = [];
+  const events: Array<{ event: string; data: unknown }> = [];
 
   for (const block of complete) {
     const lines = block.split("\n");
@@ -422,12 +542,8 @@ function ConfigModal({
   tokenSet: boolean;
   storageMode: TokenStorageMode;
   setStorageMode: (m: TokenStorageMode) => void;
-}) {
+  }) {
   const [draft, setDraft] = useState("");
-
-  useEffect(() => {
-    if (!open) setDraft("");
-  }, [open]);
 
   async function pasteFromClipboard() {
     try {
@@ -436,6 +552,11 @@ function ConfigModal({
     } catch {
       // ignore
     }
+  }
+
+  function handleClose() {
+    setDraft("");
+    onClose();
   }
 
   if (!open) return null;
@@ -451,7 +572,7 @@ function ConfigModal({
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="h-9 w-9 rounded-xl border border-border/60 bg-card/70 hover:bg-card/90 text-muted-foreground transition"
             title="Close"
             aria-label="Close"
@@ -509,7 +630,10 @@ function ConfigModal({
 
               <div className="flex items-center gap-2">
                 <button
-                  onClick={onClearToken}
+                  onClick={() => {
+                    onClearToken();
+                    setDraft("");
+                  }}
                   className="inline-flex items-center gap-2 rounded-xl border border-border/70 bg-card/60 px-3 py-2 text-sm text-foreground hover:bg-card/80 transition"
                   title="Clear stored token"
                 >
@@ -518,7 +642,10 @@ function ConfigModal({
                 </button>
 
                 <button
-                  onClick={() => onSaveToken(draft.trim())}
+                  onClick={() => {
+                    onSaveToken(draft.trim());
+                    setDraft("");
+                  }}
                   disabled={!draft.trim()}
                   className={cn(
                     "rounded-xl px-4 py-2 text-sm font-semibold transition",
@@ -554,6 +681,7 @@ export default function Page() {
 
   const [configOpen, setConfigOpen] = useState(false);
   const [dark, setDark] = useState(true);
+  const [workspace, setWorkspace] = useState<"security" | "observability">("security");
 
   const [messages, setMessages] = useState<ChatMsg[]>([
     {
@@ -591,6 +719,20 @@ export default function Page() {
   );
 
   const promptChips = useMemo(() => {
+    if (workspace === "observability") {
+      const zh = [
+        "vLLM fdtn-ai/Foundation-Sec-8B-Instruct\u572815\u5206\u949f\u5185\u7684\u6210\u529f\u6b21\u6570\u66f2\u7ebf",
+        "\u5fae\u670d\u52a1ai-serving/foundation-instruct-vllm\u572815\u5206\u949f\u5185\u7684\u6210\u529f\u7387\u53d8\u5316\u66f2\u7ebf",
+        "\u4ece\u5916\u90e8\u4e16\u754c\u5230\u9ed8\u8ba4\u96c6\u7fa4\u5fae\u670d\u52a1ai-serving/foundation-instruct-vllm\u768415\u5206\u949f\u5185\u7684\u901a\u4fe1\u5f02\u5e38",
+      ];
+      const en = [
+        "vLLM fdtn-ai/Foundation-Sec-8B-Instruct success count trend in the last 15 minutes",
+        "Microservice ai-serving/foundation-instruct-vllm success rate trend in the last 15 minutes",
+        "Communication anomalies from the external world to ai-serving/foundation-instruct-vllm in the default cluster over the last 15 minutes",
+      ];
+      return [zh[0], en[0], zh[1], en[1], zh[2], en[2]];
+    }
+
     const zh = [
       "\u6700\u8fd130\u5206\u949f\u5404\u7c7b\u544a\u8b66\u968f\u65f6\u95f4\u7684\u53d8\u5316\u66f2\u7ebf",
       "\u6bd4\u8f83\u6700\u8fd115\u5206\u949f\u7684\u5404\u4e2a\u8282\u70b9\u7684\u544a\u8b66\u5206\u5e03",
@@ -604,7 +746,7 @@ export default function Page() {
     ];
 
     return [zh[0], en[0], zh[1], en[1], zh[2], en[2]];
-  }, []);
+  }, [workspace]);
 
   async function send() {
     const text = input.trim();
@@ -628,7 +770,7 @@ export default function Page() {
       const resp = await fetch("/api/chat", {
         method: "POST",
         headers,
-        body: JSON.stringify({ message: text, history, stream: true }),
+        body: JSON.stringify({ message: text, history, stream: true, workspace }),
       });
 
       if (resp.status === 401) {
@@ -658,24 +800,27 @@ export default function Page() {
 
         for (const ev of parsed.events) {
           if (ev.event === "status") {
-            const nextStage = String(ev.data?.stage || "planning");
+            const dataObj = ev.data && typeof ev.data === "object" ? (ev.data as { stage?: unknown }) : {};
+            const nextStage = String(dataObj.stage || "planning");
             setStage(nextStage);
           } else if (ev.event === "panel") {
             setPanels((prev) => [...prev, ev.data as Panel]);
           } else if (ev.event === "delta") {
-            const d = String(ev.data?.text ?? "");
+            const dataObj = ev.data && typeof ev.data === "object" ? (ev.data as { text?: unknown }) : {};
+            const d = String(dataObj.text ?? "");
             if (d) setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, text: m.text + d } : m)));
           } else if (ev.event === "error") {
-            const stageName = String(ev.data?.stage || "unknown");
-            const msg = String(ev.data?.message || "Unknown error");
+            const dataObj = ev.data && typeof ev.data === "object" ? (ev.data as { stage?: unknown; message?: unknown }) : {};
+            const stageName = String(dataObj.stage || "unknown");
+            const msg = String(dataObj.message || "Unknown error");
             throw new Error(`[${stageName}] ${msg}`);
           }
         }
 
         setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 10);
       }
-    } catch (e: any) {
-      const msg = String(e?.message || e);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
 
       const errZh = [
         `\u8bf7\u6c42\u5931\u8d25\uff1a${msg}`,
@@ -745,7 +890,20 @@ export default function Page() {
             </div>
             <div>
               <div className="text-base font-semibold text-foreground">AI Canvas On-prem</div>
-              <div className="text-xs text-muted-foreground">Security analytics workspace</div>
+              <div className="mt-1">
+                <label className="sr-only" htmlFor="workspace-select">
+                  Workspace
+                </label>
+                <select
+                  id="workspace-select"
+                  value={workspace}
+                  onChange={(e) => setWorkspace(e.target.value === "observability" ? "observability" : "security")}
+                  className="rounded-lg border border-border/70 bg-card/60 px-2 py-1 text-xs text-muted-foreground hover:bg-card/80"
+                >
+                  <option value="security">Security analytics workspace</option>
+                  <option value="observability">Observability analytics workspace</option>
+                </select>
+              </div>
             </div>
           </div>
 
@@ -872,6 +1030,7 @@ export default function Page() {
                   {p.kind === "bar" && <BarPanel p={p} />}
                   {p.kind === "pie" && <PiePanel p={p} />}
                   {p.kind === "line" && <LinePanel p={p} />}
+                  {p.kind === "network" && <NetworkPanel p={p} />}
                   {p.kind === "table" && <TablePanel p={p} />}
                 </PanelShell>
               ))}
@@ -889,4 +1048,3 @@ export default function Page() {
     </div>
   );
 }
-
