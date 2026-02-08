@@ -374,9 +374,9 @@ function NetworkRowViz({ row }: { row: NetworkRow }) {
   const nodes = row.nodes || [];
   const edges = row.edges || [];
   const annotations = row.annotations || [];
-  const y = 45;
+  const y = 60;
   const viewWidth = 100;
-  const viewHeight = 90;
+  const viewHeight = 140;
 
   const positions = new Map<string, { x: number; y: number }>();
   nodes.forEach((node, idx) => {
@@ -386,7 +386,7 @@ function NetworkRowViz({ row }: { row: NetworkRow }) {
 
   return (
     <div className="rounded-xl border border-border/70 bg-card/60 p-3">
-      <svg viewBox={`0 0 ${viewWidth} ${viewHeight}`} className="w-full h-24">
+      <svg viewBox={`0 0 ${viewWidth} ${viewHeight}`} className="w-full h-56">
         {edges.map((edge, idx) => {
           const from = positions.get(edge.from);
           const to = positions.get(edge.to);
@@ -401,10 +401,10 @@ function NetworkRowViz({ row }: { row: NetworkRow }) {
                 x2={to.x}
                 y2={to.y}
                 stroke="hsl(var(--border))"
-                strokeWidth={1.2}
+                strokeWidth={1.6}
               />
               {edge.label ? (
-                <text x={midX} y={midY - 6} textAnchor="middle" fontSize={4.5} fill="hsl(var(--muted-foreground))">
+                <text x={midX} y={midY - 8} textAnchor="middle" fontSize={7} fill="hsl(var(--muted-foreground))">
                   {edge.label}
                 </text>
               ) : null}
@@ -417,12 +417,12 @@ function NetworkRowViz({ row }: { row: NetworkRow }) {
           const fill = node.status === "alert" ? "#ef4444" : "#22c55e";
           return (
             <g key={node.id}>
-              <circle cx={pos.x} cy={pos.y} r={4.2} fill={fill} />
+              <circle cx={pos.x} cy={pos.y} r={6} fill={fill} />
               <text
                 x={pos.x}
-                y={pos.y + 12}
+                y={pos.y + 18}
                 textAnchor="middle"
-                fontSize={4.2}
+                fontSize={7.5}
                 fill="hsl(var(--foreground))"
               >
                 {node.label}
@@ -437,8 +437,8 @@ function NetworkRowViz({ row }: { row: NetworkRow }) {
             <text
               key={`${ann.nodeId}-${idx}`}
               x={pos.x + 6}
-              y={pos.y - 6}
-              fontSize={4.5}
+              y={pos.y - 10}
+              fontSize={7}
               fill="hsl(var(--muted-foreground))"
             >
               {ann.label}

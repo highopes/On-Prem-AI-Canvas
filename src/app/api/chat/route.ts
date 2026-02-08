@@ -73,6 +73,8 @@ type ObservabilityPlan = {
   requests: ObservabilityRequest[];
 };
 
+type ObservabilityIntent = "success_rate" | "success_count" | "anomaly" | "gpu" | "unknown";
+
 type NetworkNode = { id: string; label: string; status: "ok" | "alert" };
 type NetworkEdge = { from: string; to: string; label?: string };
 type NetworkAnnotation = { nodeId: string; label: string };
@@ -637,6 +639,82 @@ function fallbackObservabilityPlan(userMsg: string): ObservabilityPlan {
       },
     ],
   };
+}
+
+function detectObservabilityIntent(userMsg: string): ObservabilityIntent {
+  const s = userMsg.toLowerCase();
+  if (s.includes("\u901a\u4fe1\u5f02\u5e38") || s.includes("anomaly") || s.includes("abnormal") || s.includes("drop")) return "anomaly";
+  if (s.includes("\u6210\u529f\u7387") || s.includes("success rate")) return "success_rate";
+  if (s.includes("gpu")) return "gpu";
+  if (s.includes("\u6210\u529f\u6b21\u6570") || s.includes("success count")) return "success_count";
+  return "unknown";
+}
+
+function buildObservabilityRequest(
+  intent: ObservabilityIntent,
+  lang: "en" | "zh",
+): ObservabilityRequest[] {
+  if (intent === "anomaly") {
+    return [
+      {
+        mcp: "hubble",
+        tool: "fetch_flow_metrics",
+        target: "ai-serving/foundation-instruct-vllm",
+        metric: "policy_drop_flows",
+        viz: "network",
+        title: lang === "zh" ? "\u901a\u4fe1\u5f02\u5e38\u62d3\u6251" : "Communication anomaly topology",
+      },
+      {
+        mcp: "ndi",
+        tool: "fetch_anomalies",
+        target: "default-cluster",
+        metric: "anomaly_events",
+        viz: "network",
+        title: lang === "zh" ? "\u4f4e\u5c42\u7f51\u7edc\u5f02\u5e38" : "Underlay anomalies",
+      },
+    ];
+  }
+  if (intent === "success_rate") {
+    return [
+      {
+        mcp: "grafana",
+        tool: "query_dashboard_timeseries",
+        target: "hubble-l7-http-metrics-by-workload",
+        metric: "success_rate",
+        viz: "line",
+        title: lang === "zh" ? "\u6210\u529f\u7387\u8d8b\u52bf" : "Success rate trend",
+      },
+    ];
+  }
+  if (intent === "gpu") {
+    return [
+      {
+        mcp: "grafana",
+        tool: "query_dashboard_timeseries",
+        target: "nvidia-dcgm-exporter-dashboard",
+        metric: "gpu_utilization",
+        viz: "line",
+        title: lang === "zh" ? "GPU\u5229\u7528\u7387\u8d8b\u52bf" : "GPU utilization trend",
+      },
+    ];
+  }
+  return [
+    {
+      mcp: "grafana",
+      tool: "query_dashboard_timeseries",
+      target: "vllm-dashboard",
+      metric: "success_count_per_minute",
+      viz: "line",
+      title: lang === "zh" ? "vLLM\u6210\u529f\u6b21\u6570\u8d8b\u52bf" : "vLLM success count trend",
+    },
+  ];
+}
+
+function enforceObservabilityIntent(plan: ObservabilityPlan, userMsg: string): ObservabilityPlan {
+  const intent = detectObservabilityIntent(userMsg);
+  if (intent === "unknown") return plan;
+  const requests = buildObservabilityRequest(intent, plan.language);
+  return { ...plan, requests };
 }
 
 const BASE_SEARCH = [
@@ -1313,6 +1391,7 @@ export async function POST(req: Request) {
           if (!plan || plan.requests.length === 0) {
             plan = fallbackObservabilityPlan(userMsg);
           }
+          plan = enforceObservabilityIntent(plan, userMsg);
 
           write("plan", plan);
 
