@@ -357,36 +357,68 @@ function TablePanel({ p }: { p: Extract<Panel, { kind: "table" }> }) {
 
 function NetworkPanel({ p }: { p: Extract<Panel, { kind: "network" }> }) {
   const rows = Array.isArray(p.rows) ? p.rows : [];
+  const [zoomByRow, setZoomByRow] = useState<Record<string, number>>({});
 
   return (
     <div className="space-y-6">
-      {rows.map((row, idx) => (
-        <div key={`${row.source}-${idx}`} className="space-y-2">
-          <div className="text-xs font-semibold text-muted-foreground">{row.source}</div>
-          <NetworkRowViz row={row} />
-        </div>
-      ))}
+      {rows.map((row, idx) => {
+        const rowKey = `${row.source}-${idx}`;
+        const zoom = zoomByRow[rowKey] ?? 1;
+        return (
+          <div key={rowKey} className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs font-semibold text-muted-foreground">{row.source}</div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setZoomByRow((prev) => ({ ...prev, [rowKey]: Math.max(0.6, zoom - 0.2) }))}
+                  className="h-7 w-7 rounded-lg border border-border/70 bg-card/60 text-sm text-foreground hover:bg-card/80 transition"
+                  aria-label="Zoom out"
+                >
+                  -
+                </button>
+                <div className="text-[11px] text-muted-foreground">{Math.round(zoom * 100)}%</div>
+                <button
+                  type="button"
+                  onClick={() => setZoomByRow((prev) => ({ ...prev, [rowKey]: Math.min(2, zoom + 0.2) }))}
+                  className="h-7 w-7 rounded-lg border border-border/70 bg-card/60 text-sm text-foreground hover:bg-card/80 transition"
+                  aria-label="Zoom in"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+            <NetworkRowViz row={row} zoom={zoom} />
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-function NetworkRowViz({ row }: { row: NetworkRow }) {
+function NetworkRowViz({ row, zoom }: { row: NetworkRow; zoom: number }) {
   const nodes = row.nodes || [];
   const edges = row.edges || [];
   const annotations = row.annotations || [];
-  const y = 60;
-  const viewWidth = 100;
-  const viewHeight = 140;
+  const spacing = 120;
+  const viewWidth = Math.max(240, (nodes.length - 1) * spacing + 200);
+  const viewHeight = 240;
+  const y = viewHeight / 2;
 
   const positions = new Map<string, { x: number; y: number }>();
   nodes.forEach((node, idx) => {
-    const x = nodes.length === 1 ? 50 : (idx / (nodes.length - 1)) * viewWidth;
+    const x = nodes.length === 1 ? viewWidth / 2 : idx * spacing + 100;
     positions.set(node.id, { x, y });
   });
 
+  const scaledWidth = viewWidth / zoom;
+  const scaledHeight = viewHeight / zoom;
+  const offsetX = (viewWidth - scaledWidth) / 2;
+  const offsetY = (viewHeight - scaledHeight) / 2;
+
   return (
     <div className="rounded-xl border border-border/70 bg-card/60 p-3">
-      <svg viewBox={`0 0 ${viewWidth} ${viewHeight}`} className="w-full h-56">
+      <svg viewBox={`${offsetX} ${offsetY} ${scaledWidth} ${scaledHeight}`} className="w-full h-64">
         {edges.map((edge, idx) => {
           const from = positions.get(edge.from);
           const to = positions.get(edge.to);
@@ -401,10 +433,10 @@ function NetworkRowViz({ row }: { row: NetworkRow }) {
                 x2={to.x}
                 y2={to.y}
                 stroke="hsl(var(--border))"
-                strokeWidth={1.6}
+                strokeWidth={2}
               />
               {edge.label ? (
-                <text x={midX} y={midY - 8} textAnchor="middle" fontSize={7} fill="hsl(var(--muted-foreground))">
+                <text x={midX} y={midY - 10} textAnchor="middle" fontSize={12} fill="hsl(var(--muted-foreground))">
                   {edge.label}
                 </text>
               ) : null}
@@ -417,12 +449,12 @@ function NetworkRowViz({ row }: { row: NetworkRow }) {
           const fill = node.status === "alert" ? "#ef4444" : "#22c55e";
           return (
             <g key={node.id}>
-              <circle cx={pos.x} cy={pos.y} r={6} fill={fill} />
+              <circle cx={pos.x} cy={pos.y} r={10} fill={fill} />
               <text
                 x={pos.x}
-                y={pos.y + 18}
+                y={pos.y + 28}
                 textAnchor="middle"
-                fontSize={7.5}
+                fontSize={13}
                 fill="hsl(var(--foreground))"
               >
                 {node.label}
@@ -437,8 +469,8 @@ function NetworkRowViz({ row }: { row: NetworkRow }) {
             <text
               key={`${ann.nodeId}-${idx}`}
               x={pos.x + 6}
-              y={pos.y - 10}
-              fontSize={7}
+              y={pos.y - 14}
+              fontSize={12}
               fill="hsl(var(--muted-foreground))"
             >
               {ann.label}
