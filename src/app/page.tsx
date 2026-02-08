@@ -357,84 +357,38 @@ function TablePanel({ p }: { p: Extract<Panel, { kind: "table" }> }) {
 
 function NetworkPanel({ p }: { p: Extract<Panel, { kind: "network" }> }) {
   const rows = Array.isArray(p.rows) ? p.rows : [];
-  const [sizeByRow, setSizeByRow] = useState<Record<string, { node: number; font: number }>>({});
-  const defaultSizes = { node: 14, font: 16 };
+  const [zoomByRow, setZoomByRow] = useState<Record<string, number>>({});
 
   return (
     <div className="space-y-6">
       {rows.map((row, idx) => {
         const rowKey = `${row.source}-${idx}`;
-        const sizes = sizeByRow[rowKey] ?? defaultSizes;
+        const zoom = zoomByRow[rowKey] ?? 1;
         return (
           <div key={rowKey} className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <div className="text-xs font-semibold text-muted-foreground">{row.source}</div>
-              <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-                <div className="flex items-center gap-2">
-                  <span>Node</span>
-                  <div className="flex flex-col">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSizeByRow((prev) => ({
-                          ...prev,
-                          [rowKey]: { ...sizes, node: Math.min(20, sizes.node + 1) },
-                        }))
-                      }
-                      className="h-4 w-6 rounded-md border border-border/70 bg-card/60 text-[10px] text-foreground hover:bg-card/80 transition leading-none"
-                      aria-label="Increase node size"
-                    >
-                      ▲
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSizeByRow((prev) => ({
-                          ...prev,
-                          [rowKey]: { ...sizes, node: Math.max(6, sizes.node - 1) },
-                        }))
-                      }
-                      className="mt-1 h-4 w-6 rounded-md border border-border/70 bg-card/60 text-[10px] text-foreground hover:bg-card/80 transition leading-none"
-                      aria-label="Decrease node size"
-                    >
-                      ▼
-                    </button>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span>Font</span>
-                  <div className="flex flex-col">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSizeByRow((prev) => ({
-                          ...prev,
-                          [rowKey]: { ...sizes, font: Math.min(18, sizes.font + 1) },
-                        }))
-                      }
-                      className="h-4 w-6 rounded-md border border-border/70 bg-card/60 text-[10px] text-foreground hover:bg-card/80 transition leading-none"
-                      aria-label="Increase font size"
-                    >
-                      ▲
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSizeByRow((prev) => ({
-                          ...prev,
-                          [rowKey]: { ...sizes, font: Math.max(9, sizes.font - 1) },
-                        }))
-                      }
-                      className="mt-1 h-4 w-6 rounded-md border border-border/70 bg-card/60 text-[10px] text-foreground hover:bg-card/80 transition leading-none"
-                      aria-label="Decrease font size"
-                    >
-                      ▼
-                    </button>
-                  </div>
-                </div>
+              <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                <button
+                  type="button"
+                  onClick={() => setZoomByRow((prev) => ({ ...prev, [rowKey]: Math.max(0.6, zoom - 0.1) }))}
+                  className="h-6 w-6 rounded-md border border-border/70 bg-card/60 text-sm text-foreground hover:bg-card/80 transition leading-none"
+                  aria-label="Zoom out"
+                >
+                  -
+                </button>
+                <div className="text-[11px] text-muted-foreground">{Math.round(zoom * 100)}%</div>
+                <button
+                  type="button"
+                  onClick={() => setZoomByRow((prev) => ({ ...prev, [rowKey]: Math.min(2, zoom + 0.1) }))}
+                  className="h-6 w-6 rounded-md border border-border/70 bg-card/60 text-sm text-foreground hover:bg-card/80 transition leading-none"
+                  aria-label="Zoom in"
+                >
+                  +
+                </button>
               </div>
             </div>
-            <NetworkRowViz row={row} nodeSize={sizes.node} fontSize={sizes.font} />
+            <NetworkRowViz row={row} zoom={zoom} />
           </div>
         );
       })}
@@ -442,7 +396,7 @@ function NetworkPanel({ p }: { p: Extract<Panel, { kind: "network" }> }) {
   );
 }
 
-function NetworkRowViz({ row, nodeSize, fontSize }: { row: NetworkRow; nodeSize: number; fontSize: number }) {
+function NetworkRowViz({ row, zoom }: { row: NetworkRow; zoom: number }) {
   const nodes = row.nodes || [];
   const edges = row.edges || [];
   const annotations = row.annotations || [];
@@ -451,9 +405,9 @@ function NetworkRowViz({ row, nodeSize, fontSize }: { row: NetworkRow; nodeSize:
   const viewWidth = Math.max(420, (nodes.length - 1) * spacing + 240);
   const viewHeight = 240;
   const y = viewHeight / 2;
-  const nodeRadius = nodeSize;
-  const labelFont = fontSize;
-  const edgeFont = Math.max(10, fontSize - 2);
+  const nodeRadius = 14;
+  const labelFont = 16;
+  const edgeFont = 14;
 
   const positions = new Map<string, { x: number; y: number }>();
   nodes.forEach((node, idx) => {
@@ -461,9 +415,14 @@ function NetworkRowViz({ row, nodeSize, fontSize }: { row: NetworkRow; nodeSize:
     positions.set(node.id, { x, y });
   });
 
+  const scaledWidth = viewWidth / zoom;
+  const scaledHeight = viewHeight / zoom;
+  const offsetX = (viewWidth - scaledWidth) / 2;
+  const offsetY = (viewHeight - scaledHeight) / 2;
+
   return (
     <div className="rounded-xl border border-border/70 bg-card/60 p-3 overflow-x-auto">
-      <svg viewBox={`0 0 ${viewWidth} ${viewHeight}`} style={{ width: viewWidth }} className="h-64">
+      <svg viewBox={`${offsetX} ${offsetY} ${scaledWidth} ${scaledHeight}`} style={{ width: viewWidth }} className="h-64">
         {edges.map((edge, idx) => {
           const from = positions.get(edge.from);
           const to = positions.get(edge.to);
