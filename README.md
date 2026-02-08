@@ -2,8 +2,8 @@
 
 ## 一、開發目標
 
-- 透過在 MCP Client 端加入較為精細且可控的硬編碼處理邏輯，使本地部署的小型語言模型（如 Qwen 系列）亦能穩定實現類似 AI Canvas 的互動分析與可視化效果。
-- 在不依賴大型雲端模型的前提下，確保整體行為可預期、可管控，並符合企業內部部署與資安要求。
+- 透過在 MCP Client 端加入可控的規劃與驗證邏輯，讓本地部署的小型語言模型（如 Qwen 系列）能同時支援「資安分析」與「觀測性（Observability）」兩種工作空間，維持 AI Canvas 式互動與可視化體驗。
+- 在不依賴大型雲端模型的前提下，確保資料查詢與輸出行為可預期、可管控，並符合企業內部部署與資安要求。
 
 ## 二、應用架構與實作原理
 
@@ -20,8 +20,8 @@
     - 將後端回傳的資料呈現在畫面上
   - 後端負責：
     - 接收前端請求
-    - 呼叫 Qwen 等本地模型進行語意規劃（Planning）與結果解讀（Explaining）
-    - 透過 Splunk MCP 介面查詢資料
+    - 依據工作空間（Security / Observability）呼叫 Qwen 進行規劃（Planning）與結果解讀（Explaining）
+    - 透過 MCP 介面查詢資料（資安使用 Splunk MCP；觀測性可對接 Grafana / Hubble / NDI 類 MCP）
     - 以串流方式將結果回傳給前端
 
 #### 語言與開發模式
@@ -57,16 +57,15 @@
 ### 2.2 原理概述
 
 - 瀏覽器端（前端）僅負責顯示與互動，不直接處理資料查詢或推理邏輯。
-- 所有以下工作皆集中於後端 API：
-  - 查詢資料
-  - 語意推理
-  - SPL 組合
-  - 呼叫 Splunk
+- 所有核心流程集中於後端 API：
+  - 依工作空間決定規劃與查詢邏輯
+  - 進行語意規劃與推理
+  - 呼叫 MCP 來源取得資料
 - 前端透過 `/api/chat` 發起一次分析請求後，後端會將「圖表面板」與「文字解讀」一邊產生、一邊以串流方式回傳。
 - 設計上的關鍵取捨在於：
-  - **不允許小型模型直接生成 SPL**
-  - 小模型僅負責輸出「結構化的分析計畫（JSON）」
-  - 實際的 SPL 由後端依固定模板產生  
+  - **不允許小型模型直接生成 SPL 或任意 MCP 指令**
+  - 模型僅輸出結構化的分析計畫（JSON）
+  - 後端依固定模板與白名單做查詢與組合  
   → 使整體行為更穩定、可控，並避免模型幻覺（Hallucination）。
 
 ## 三、應用實作流程
@@ -74,6 +73,7 @@
 ### 3.1 整體流程
 
 - 使用者於左側 Chat 區輸入自然語言問題
+- 在 UI 上切換工作空間（Security / Observability）
 - 前端 `page.tsx` 以 `POST /api/chat` 呼叫後端（並攜帶 Access Token 以進行存取控管）
 - 後端 `route.ts` 進入三階段處理流程，並即時將狀態回傳前端
 
@@ -81,8 +81,11 @@
 
 #### （一）Planning：語意規劃階段
 
-- 呼叫 Qwen 本地模型，透過提示詞工程（Prompt Engineering）解析使用者意圖
-- 輸出一份標準化 JSON，內容包含：
+- 依工作空間呼叫 Qwen 本地模型，透過提示詞工程（Prompt Engineering）解析使用者意圖
+- 產生標準化 JSON，並交由後端做嚴格驗證與修正
+
+**Security（資安）工作空間：**
+- JSON 內容包含：
   - 視覺化圖表類型
   - 資料過濾條件
   - 查詢時間範圍
@@ -143,25 +146,32 @@
 }
 ```
 
-- 目前僅支援單一功能（資安事件可視化）。未來將擴充為多功能架構，於此階段額外回傳一個 savedsearch 欄位。目前系統預設使用 Event_Table，後續規劃改由環境變數定義一組 Savedsearch 對應表，每一個 Savedsearch 皆包含其對應的欄位定義與說明註解，並由小型語言模型自其中進行選擇，回傳欲使用的 Savedsearch。
-- 規劃中的擴充方向：
-  - 未來在 JSON 中新增 `savedsearch` 欄位
-  - 透過環境變數定義一組 Savedsearch 對應表
-  - 每個 Savedsearch 對應一組欄位定義與說明
-  - 由小模型「多選一」回傳欲使用的 Savedsearch
+**Observability（觀測性）工作空間：**
+- JSON 內容包含：
+  - MCP 類型（Grafana / Hubble / NDI）
+  - 工具名稱（如 metrics 查詢或異常事件）
+  - 指標與目標服務/儀表板
+  - 圖表類型（折線 / 網路拓樸）
+  - 查詢時間範圍
+- 系統會套用白名單規則，僅允許特定 mcp/tool/metric/target/viz 組合，避免模型產生不可控指令。
 
 #### （二）Querying：Splunk 查詢階段
 
-- 後端依據 Planning 階段產出的 JSON：
+**Security（資安）工作空間：**
+- 後端依據 Planning 產出的 JSON：
   - 套用既定的 SPL 模板
-  - 以指定的 savedsearch 作為查詢基底
-- 透過 Splunk MCP 拉取資料
+  - 透過 Splunk MCP 拉取資料
 - 將查詢結果轉換為多個 Panel：
   - 單值（Single Value）
   - 表格（Table）
   - 長條圖（Bar）
   - 圓餅圖（Pie）
   - 折線圖（Line）
+
+**Observability（觀測性）工作空間：**
+- 後端依據 Planning 產出的 JSON：
+  - 透過 Grafana / Hubble / NDI 類 MCP 取得指標或網路拓樸資料
+  - 依需求產出折線圖或 Overlay/Underlay 網路拓樸面板
 
 #### （三）Explaining：結果解讀階段
 
