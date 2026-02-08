@@ -369,60 +369,68 @@ function NetworkPanel({ p }: { p: Extract<Panel, { kind: "network" }> }) {
             <div className="flex items-center justify-between gap-2">
               <div className="text-xs font-semibold text-muted-foreground">{row.source}</div>
               <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-                <span>Node</span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setSizeByRow((prev) => ({
-                      ...prev,
-                      [rowKey]: { ...sizes, node: Math.max(6, sizes.node - 1) },
-                    }))
-                  }
-                  className="h-7 w-7 rounded-lg border border-border/70 bg-card/60 text-sm text-foreground hover:bg-card/80 transition"
-                  aria-label="Decrease node size"
-                >
-                  -
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setSizeByRow((prev) => ({
-                      ...prev,
-                      [rowKey]: { ...sizes, node: Math.min(20, sizes.node + 1) },
-                    }))
-                  }
-                  className="h-7 w-7 rounded-lg border border-border/70 bg-card/60 text-sm text-foreground hover:bg-card/80 transition"
-                  aria-label="Increase node size"
-                >
-                  +
-                </button>
-                <span>Font</span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setSizeByRow((prev) => ({
-                      ...prev,
-                      [rowKey]: { ...sizes, font: Math.max(9, sizes.font - 1) },
-                    }))
-                  }
-                  className="h-7 w-7 rounded-lg border border-border/70 bg-card/60 text-sm text-foreground hover:bg-card/80 transition"
-                  aria-label="Decrease font size"
-                >
-                  -
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setSizeByRow((prev) => ({
-                      ...prev,
-                      [rowKey]: { ...sizes, font: Math.min(18, sizes.font + 1) },
-                    }))
-                  }
-                  className="h-7 w-7 rounded-lg border border-border/70 bg-card/60 text-sm text-foreground hover:bg-card/80 transition"
-                  aria-label="Increase font size"
-                >
-                  +
-                </button>
+                <div className="flex items-center gap-2">
+                  <span>Node</span>
+                  <div className="flex flex-col">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSizeByRow((prev) => ({
+                          ...prev,
+                          [rowKey]: { ...sizes, node: Math.min(20, sizes.node + 1) },
+                        }))
+                      }
+                      className="h-4 w-6 rounded-md border border-border/70 bg-card/60 text-[10px] text-foreground hover:bg-card/80 transition leading-none"
+                      aria-label="Increase node size"
+                    >
+                      ▲
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSizeByRow((prev) => ({
+                          ...prev,
+                          [rowKey]: { ...sizes, node: Math.max(6, sizes.node - 1) },
+                        }))
+                      }
+                      className="mt-1 h-4 w-6 rounded-md border border-border/70 bg-card/60 text-[10px] text-foreground hover:bg-card/80 transition leading-none"
+                      aria-label="Decrease node size"
+                    >
+                      ▼
+                    </button>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span>Font</span>
+                  <div className="flex flex-col">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSizeByRow((prev) => ({
+                          ...prev,
+                          [rowKey]: { ...sizes, font: Math.min(18, sizes.font + 1) },
+                        }))
+                      }
+                      className="h-4 w-6 rounded-md border border-border/70 bg-card/60 text-[10px] text-foreground hover:bg-card/80 transition leading-none"
+                      aria-label="Increase font size"
+                    >
+                      ▲
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSizeByRow((prev) => ({
+                          ...prev,
+                          [rowKey]: { ...sizes, font: Math.max(9, sizes.font - 1) },
+                        }))
+                      }
+                      className="mt-1 h-4 w-6 rounded-md border border-border/70 bg-card/60 text-[10px] text-foreground hover:bg-card/80 transition leading-none"
+                      aria-label="Decrease font size"
+                    >
+                      ▼
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
             <NetworkRowViz row={row} nodeSize={sizes.node} fontSize={sizes.font} />
