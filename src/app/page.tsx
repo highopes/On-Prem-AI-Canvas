@@ -400,10 +400,15 @@ function NetworkRowViz({ row, zoom }: { row: NetworkRow; zoom: number }) {
   const nodes = row.nodes || [];
   const edges = row.edges || [];
   const annotations = row.annotations || [];
-  const spacing = 120;
-  const viewWidth = Math.max(240, (nodes.length - 1) * spacing + 200);
+  const isOverlay = row.source.toLowerCase().includes("hubble");
+  const isUnderlay = row.source.toLowerCase().includes("ndi");
+  const spacing = isOverlay ? 180 : 140;
+  const viewWidth = Math.max(320, (nodes.length - 1) * spacing + 220);
   const viewHeight = 240;
   const y = viewHeight / 2;
+  const nodeRadius = isUnderlay ? 12 : 11;
+  const labelFont = isUnderlay ? 14 : 13;
+  const edgeFont = isUnderlay ? 12 : 11;
 
   const positions = new Map<string, { x: number; y: number }>();
   nodes.forEach((node, idx) => {
@@ -436,7 +441,7 @@ function NetworkRowViz({ row, zoom }: { row: NetworkRow; zoom: number }) {
                 strokeWidth={2}
               />
               {edge.label ? (
-                <text x={midX} y={midY - 10} textAnchor="middle" fontSize={12} fill="hsl(var(--muted-foreground))">
+                <text x={midX} y={midY - 12} textAnchor="middle" fontSize={edgeFont} fill="hsl(var(--muted-foreground))">
                   {edge.label}
                 </text>
               ) : null}
@@ -449,12 +454,12 @@ function NetworkRowViz({ row, zoom }: { row: NetworkRow; zoom: number }) {
           const fill = node.status === "alert" ? "#ef4444" : "#22c55e";
           return (
             <g key={node.id}>
-              <circle cx={pos.x} cy={pos.y} r={10} fill={fill} />
+              <circle cx={pos.x} cy={pos.y} r={nodeRadius} fill={fill} />
               <text
                 x={pos.x}
-                y={pos.y + 28}
+                y={pos.y + 30}
                 textAnchor="middle"
-                fontSize={13}
+                fontSize={labelFont}
                 fill="hsl(var(--foreground))"
               >
                 {node.label}

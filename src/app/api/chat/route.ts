@@ -1253,7 +1253,6 @@ function mockHubbleRow(): NetworkRow {
       { id: "ai-serving/foundation-instruct-vllm", label: "ai-serving/foundation-instruct-vllm", status: "alert" },
     ],
     edges: [{ from: "world", to: "ai-serving/foundation-instruct-vllm", label: "Policy Drop: 20" }],
-    annotations: [{ nodeId: "ai-serving/foundation-instruct-vllm", label: "Policy Drop: 20" }],
     stats: { policy_drop: 20 },
   };
 }
