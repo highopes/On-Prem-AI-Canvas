@@ -436,8 +436,8 @@ function NetworkRowViz({ row, zoom }: { row: NetworkRow; zoom: number }) {
                 y1={from.y}
                 x2={to.x}
                 y2={to.y}
-                stroke="hsl(var(--border))"
-                strokeWidth={2}
+                className="stroke-sky-500 dark:stroke-sky-300"
+                strokeWidth={2.5}
               />
               {edge.label ? (
                 <text x={midX} y={midY - 12} textAnchor="middle" fontSize={edgeFont} fill="hsl(var(--muted-foreground))">
