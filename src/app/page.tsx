@@ -718,6 +718,7 @@ export default function Page() {
   const [configOpen, setConfigOpen] = useState(false);
   const [dark, setDark] = useState(true);
   const [workspace, setWorkspace] = useState<"security" | "observability">("security");
+  const [promptOpen, setPromptOpen] = useState(true);
 
   const [messages, setMessages] = useState<ChatMsg[]>([
     {
@@ -963,7 +964,7 @@ export default function Page() {
 
         <div className="grid flex-1 grid-cols-12 gap-4 min-h-0">
           <div className="col-span-12 lg:col-span-4">
-            <div className="flex h-full flex-col rounded-2xl border border-border/70 bg-card/70 backdrop-blur shadow-xl">
+            <div className="flex h-full min-h-0 flex-col rounded-2xl border border-border/70 bg-card/70 backdrop-blur shadow-xl">
               <div className="px-4 py-3 border-b border-border/60">
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-semibold text-foreground">Chat</div>
@@ -972,21 +973,34 @@ export default function Page() {
                   </div>
                 </div>
 
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {promptChips.map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => setInput(p)}
-                      className="max-w-full rounded-full border border-border/70 bg-card/50 px-3 py-1 text-xs text-foreground hover:bg-card/80 break-words whitespace-normal text-left transition"
-                      title={p}
-                    >
-                      {p}
-                    </button>
-                  ))}
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={() => setPromptOpen((prev) => !prev)}
+                    className="flex w-full items-center gap-2 rounded-lg border border-border/70 bg-card/50 px-3 py-2 text-xs font-medium text-foreground hover:bg-card/80 transition"
+                    aria-expanded={promptOpen}
+                  >
+                    <span className="text-muted-foreground">{promptOpen ? "▾" : "▸"}</span>
+                    <span>快速提示词 / Quick prompt</span>
+                  </button>
+                  {promptOpen && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {promptChips.map((p) => (
+                        <button
+                          key={p}
+                          onClick={() => setInput(p)}
+                          className="max-w-full rounded-full border border-border/70 bg-card/50 px-3 py-1 text-xs text-foreground hover:bg-card/80 break-words whitespace-normal text-left transition"
+                          title={p}
+                        >
+                          {p}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
-              <div className="flex-1 overflow-auto px-4 py-3">
+              <div className="flex-1 min-h-0 overflow-auto px-4 py-3">
                 {messages.map((m) => {
                   const isUser = m.role === "user";
                   return (
@@ -1059,8 +1073,8 @@ export default function Page() {
           </div>
 
           <div className="col-span-12 lg:col-span-8">
-            <div className="flex h-full flex-col rounded-2xl border border-border/70 bg-card/70 p-4 shadow-xl backdrop-blur">
-              <div className="flex-1 overflow-auto">
+            <div className="flex h-full min-h-0 flex-col rounded-2xl border border-border/70 bg-card/70 p-4 shadow-xl backdrop-blur">
+              <div className="flex-1 min-h-0 overflow-auto">
                 <div className="grid grid-cols-1 gap-4">
                   {panels.map((p) => (
                     <PanelShell key={p.panel_id} title={`${p.title} · ${p.kind}`} onClose={() => closePanel(p.panel_id)}>
