@@ -5,6 +5,11 @@
 - 透過在 MCP Client 端加入可控的規劃與驗證邏輯，讓本地部署的小型語言模型（如 Qwen 系列）能同時支援「資安分析」與「觀測性（Observability）」兩種工作空間，維持 AI Canvas 式互動與可視化體驗。
 - 在不依賴大型雲端模型的前提下，確保資料查詢與輸出行為可預期、可管控，並符合企業內部部署與資安要求。
 
+![Observability Screenshot](docs/images/Screenshot-Observability-01.png)
+
+![Security Screenshot](docs/images/Screenshot-Security-01.png)
+
+
 ## 二、應用架構與實作原理
 
 ### 2.1 框架與技術棧
