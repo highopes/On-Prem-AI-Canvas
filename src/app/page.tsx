@@ -908,7 +908,7 @@ export default function Page() {
   const tokenSet = !!accessToken;
 
   return (
-    <div className="min-h-screen">
+    <div className="h-screen overflow-hidden">
       <ConfigModal
         open={configOpen}
         onClose={() => setConfigOpen(false)}
@@ -919,7 +919,7 @@ export default function Page() {
         setStorageMode={setTokenMode}
       />
 
-      <div className="mx-auto flex h-[967px] max-w-[1496px] flex-col px-4 py-4">
+      <div className="mx-auto flex h-full max-w-[1496px] flex-col px-4 py-4">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-2xl bg-primary text-primary-foreground grid place-items-center shadow">
@@ -977,10 +977,10 @@ export default function Page() {
                   <button
                     type="button"
                     onClick={() => setPromptOpen((prev) => !prev)}
-                    className="flex w-full items-center gap-2 rounded-lg border border-border/70 bg-card/50 px-3 py-2 text-xs font-medium text-foreground hover:bg-card/80 transition"
+                    className="flex w-full items-center gap-2 rounded-lg border border-border/70 bg-card/50 px-3 py-2 text-sm font-medium text-foreground hover:bg-card/80 transition"
                     aria-expanded={promptOpen}
                   >
-                    <span className="text-muted-foreground">{promptOpen ? "▾" : "▸"}</span>
+                    <span className="text-muted-foreground text-sm">{promptOpen ? "▾" : "▸"}</span>
                     <span>快速提示词 / Quick prompt</span>
                   </button>
                   {promptOpen && (
