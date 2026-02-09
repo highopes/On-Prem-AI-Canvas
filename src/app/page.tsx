@@ -918,7 +918,7 @@ export default function Page() {
         setStorageMode={setTokenMode}
       />
 
-      <div className="mx-auto max-w-[1440px] px-4 py-4">
+      <div className="mx-auto flex h-[967px] max-w-[1496px] flex-col px-4 py-4">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-2xl bg-primary text-primary-foreground grid place-items-center shadow">
@@ -961,9 +961,9 @@ export default function Page() {
           </div>
         </div>
 
-        <div className="grid grid-cols-12 gap-4">
+        <div className="grid flex-1 grid-cols-12 gap-4 min-h-0">
           <div className="col-span-12 lg:col-span-4">
-            <div className="rounded-2xl border border-border/70 bg-card/70 backdrop-blur shadow-xl">
+            <div className="flex h-full flex-col rounded-2xl border border-border/70 bg-card/70 backdrop-blur shadow-xl">
               <div className="px-4 py-3 border-b border-border/60">
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-semibold text-foreground">Chat</div>
@@ -986,7 +986,7 @@ export default function Page() {
                 </div>
               </div>
 
-              <div className="h-[520px] overflow-auto px-4 py-3">
+              <div className="flex-1 overflow-auto px-4 py-3">
                 {messages.map((m) => {
                   const isUser = m.role === "user";
                   return (
@@ -1059,22 +1059,26 @@ export default function Page() {
           </div>
 
           <div className="col-span-12 lg:col-span-8">
-            <div className="grid grid-cols-1 gap-4">
-              {panels.map((p) => (
-                <PanelShell key={p.panel_id} title={`${p.title} · ${p.kind}`} onClose={() => closePanel(p.panel_id)}>
-                  {p.kind === "single" && <SinglePanel p={p} />}
-                  {p.kind === "bar" && <BarPanel p={p} />}
-                  {p.kind === "pie" && <PiePanel p={p} />}
-                  {p.kind === "line" && <LinePanel p={p} />}
-                  {p.kind === "network" && <NetworkPanel p={p} />}
-                  {p.kind === "table" && <TablePanel p={p} />}
-                </PanelShell>
-              ))}
-              {panels.length === 0 && (
-                <div className="rounded-2xl border border-dashed border-border/70 bg-card/50 p-10 text-muted-foreground shadow-sm backdrop-blur">
-                  No panels yet. Ask a question to generate charts and tables.
+            <div className="flex h-full flex-col rounded-2xl border border-border/70 bg-card/70 p-4 shadow-xl backdrop-blur">
+              <div className="flex-1 overflow-auto">
+                <div className="grid grid-cols-1 gap-4">
+                  {panels.map((p) => (
+                    <PanelShell key={p.panel_id} title={`${p.title} · ${p.kind}`} onClose={() => closePanel(p.panel_id)}>
+                      {p.kind === "single" && <SinglePanel p={p} />}
+                      {p.kind === "bar" && <BarPanel p={p} />}
+                      {p.kind === "pie" && <PiePanel p={p} />}
+                      {p.kind === "line" && <LinePanel p={p} />}
+                      {p.kind === "network" && <NetworkPanel p={p} />}
+                      {p.kind === "table" && <TablePanel p={p} />}
+                    </PanelShell>
+                  ))}
+                  {panels.length === 0 && (
+                    <div className="rounded-2xl border border-dashed border-border/70 bg-card/50 p-10 text-muted-foreground shadow-sm backdrop-blur">
+                      No panels yet. Ask a question to generate charts and tables.
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
           </div>
         </div>
