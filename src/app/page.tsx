@@ -963,8 +963,8 @@ export default function Page() {
         </div>
 
         <div className="grid flex-1 grid-cols-12 gap-4 min-h-0">
-          <div className="col-span-12 lg:col-span-4">
-            <div className="flex h-full min-h-0 flex-col rounded-2xl border border-border/70 bg-card/70 backdrop-blur shadow-xl">
+          <div className="col-span-12 lg:col-span-4 flex min-h-0">
+            <div className="flex h-full min-h-0 flex-1 flex-col rounded-2xl border border-border/70 bg-card/70 backdrop-blur shadow-xl">
               <div className="px-4 py-3 border-b border-border/60">
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-semibold text-foreground">Chat</div>
@@ -977,10 +977,12 @@ export default function Page() {
                   <button
                     type="button"
                     onClick={() => setPromptOpen((prev) => !prev)}
-                    className="flex w-full items-center gap-2 rounded-lg border border-border/70 bg-card/50 px-3 py-2 text-sm font-medium text-foreground hover:bg-card/80 transition"
+                    className="flex w-full items-center gap-3 rounded-xl border border-border/70 bg-card/50 px-3 py-2.5 text-sm font-semibold text-foreground hover:bg-card/80 transition"
                     aria-expanded={promptOpen}
                   >
-                    <span className="text-muted-foreground text-sm">{promptOpen ? "▾" : "▸"}</span>
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15 text-primary text-lg font-bold shadow-sm">
+                      {promptOpen ? "▾" : "▸"}
+                    </span>
                     <span>快速提示词 / Quick prompt</span>
                   </button>
                   {promptOpen && (
@@ -1072,8 +1074,8 @@ export default function Page() {
             </div>
           </div>
 
-          <div className="col-span-12 lg:col-span-8">
-            <div className="flex h-full min-h-0 flex-col rounded-2xl border border-border/70 bg-card/70 p-4 shadow-xl backdrop-blur">
+          <div className="col-span-12 lg:col-span-8 flex min-h-0">
+            <div className="flex h-full min-h-0 flex-1 flex-col rounded-2xl border border-border/70 bg-card/70 p-4 shadow-xl backdrop-blur">
               <div className="flex-1 min-h-0 overflow-auto">
                 <div className="grid grid-cols-1 gap-4">
                   {panels.map((p) => (
