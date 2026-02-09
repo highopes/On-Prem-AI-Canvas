@@ -977,11 +977,11 @@ export default function Page() {
                   <button
                     type="button"
                     onClick={() => setPromptOpen((prev) => !prev)}
-                    className="flex w-full items-center justify-between rounded-lg border border-border/70 bg-card/50 px-3 py-2 text-xs font-medium text-foreground hover:bg-card/80 transition"
+                    className="flex w-full items-center gap-2 rounded-lg border border-border/70 bg-card/50 px-3 py-2 text-xs font-medium text-foreground hover:bg-card/80 transition"
                     aria-expanded={promptOpen}
                   >
-                    <span>Quick prompt examples</span>
-                    <span className="text-[11px] text-muted-foreground">{promptOpen ? "Collapse" : "Expand"}</span>
+                    <span className="text-muted-foreground">{promptOpen ? "▾" : "▸"}</span>
+                    <span>快速提示词 / Quick prompt</span>
                   </button>
                   {promptOpen && (
                     <div className="mt-2 flex flex-wrap gap-2">
